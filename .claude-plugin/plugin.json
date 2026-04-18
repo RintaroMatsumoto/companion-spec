@@ -1,0 +1,26 @@
+{
+  "name": "companion-spec",
+  "version": "0.0.1",
+  "description": "Hardware-neutral AI companion specification and deployment kit. Portable persona, voice, memory, and runtime across VR, AR glasses, and text.",
+  "author": {
+    "name": "Rintaro Matsumoto",
+    "url": "https://github.com/RintaroMatsumoto"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/RintaroMatsumoto/companion-spec",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/RintaroMatsumoto/companion-spec.git"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "ai-companion",
+    "avatar",
+    "persona",
+    "vr",
+    "ar",
+    "xr",
+    "tts"
+  ]
+}
