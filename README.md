@@ -6,9 +6,18 @@ One persona, many surfaces: text chat today, VR headset tomorrow, AR glasses the
 
 ## Status
 
-**Pre-release.** This repository contains the early specification and design sketches. No skills are implemented yet. See [`docs/COMPANION_SPEC_PLAN.md`](docs/COMPANION_SPEC_PLAN.md) for the strategic plan and [`DESIGN.md`](DESIGN.md) for the evolving technical design.
+**v0.1.0 — first runnable slice.** Ships an end-to-end desktop companion: MCP tools, a narration skill, a `.companion` bundle format, and a local runner (VRM avatar + VOICEVOX voice + WebSocket bridge). Install the plugin, have VOICEVOX running, and Claude's replies start coming out of a floating window.
 
-Public release is targeted for Phase 4 of the author's plugin portfolio (roughly 2027 Q1). The repository is published now to capture thinking while the vision is fresh.
+See [`docs/COMPANION_SPEC_PLAN.md`](docs/COMPANION_SPEC_PLAN.md) for the long-horizon plan, [`DESIGN.md`](DESIGN.md) for the evolving design, and [`docs/BUNDLE_FORMAT.md`](docs/BUNDLE_FORMAT.md) for the `.companion` spec.
+
+## Quick start
+
+1. `npm install` in `mcp/` and `prototypes/companion-desktop/` (or run `node mcp/bootstrap.mjs`).
+2. Start VOICEVOX locally (default port 50021).
+3. Install this repo as a plugin in Cowork.
+4. In chat: `/companion launch` → a transparent window appears with the default avatar.
+5. Talk. The `companion-narrator` skill routes spoken lines through `companion_say`.
+6. Swap persona at any time: `/companion load C:\path\to\my-persona.companion`.
 
 ## The six layers of a companion
 
@@ -31,10 +40,18 @@ Every major AI companion today is trapped on one platform. A character you build
 
 This plugin attempts that specification, from the Claude side.
 
-## Planned skills
+## Skills & tools
 
-- `companion-new` — interactive design dialog that produces a `persona.yaml` and starter bundle
-- `companion-voice` — hooks an open TTS model into the voice layer
+Shipping in v0.1.0:
+
+- `companion-narrator` (skill) — tells Claude to route replies through `companion_say` when appropriate
+- `/companion` (command) — launch / status / say / load
+- MCP tools: `companion_launch`, `companion_status`, `companion_say`, `companion_load_persona`
+
+Planned:
+
+- `companion-new` — interactive design dialog that produces a `.companion` bundle
+- `companion-voice` — hooks alternative TTS engines into the voice layer
 - `companion-avatar` — generates or imports a rigged avatar
 - `companion-memory` — schema for long-term memory with privacy controls
 - `companion-deploy` — packages the bundle for a target runtime (Quest / AR / text)

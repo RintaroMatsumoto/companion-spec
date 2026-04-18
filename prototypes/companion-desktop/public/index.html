@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <title>companion-desktop — prototype</title>
+  <style>
+    :root {
+      --wall-top:    #fbe7e0;   /* soft peach */
+      --wall-mid:    #f5d6cc;
+      --wall-bottom: #ecc8bd;
+      --floor-top:   #c89a7a;   /* warm oak */
+      --floor-bot:   #9a6c4f;
+      --window-sky-1:#cfe7f4;
+      --window-sky-2:#e8d9ef;
+      --frame:       #f7ede4;
+      --frame-shade: #d8bfae;
+      --lace:        rgba(255, 255, 255, 0.55);
+      --accent:      #e9a1a1;
+      --leaf-dark:   #4f7c4a;
+      --leaf-light:  #79a86a;
+      --pot:         #c08664;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      color: #55484a;
+      font-family: "Yu Gothic", "Hiragino Sans", system-ui, sans-serif;
+    }
+
+    /* -------- Room -------- */
+    body {
+      background:
+        linear-gradient(
+          to bottom,
+          var(--wall-top)   0%,
+          var(--wall-mid)   55%,
+          var(--wall-bottom) 72%
+        );
+    }
+
+    /* soft striped wallpaper */
+    .wall-pattern {
+      position: fixed; inset: 0;
+      background-image:
+        repeating-linear-gradient(
+          90deg,
+          rgba(255,255,255,0.0) 0 24px,
+          rgba(255,255,255,0.35) 24px 25px
+        );
+      opacity: 0.35;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    /* wooden floor */
+    .floor {
+      position: fixed;
+      left: 0; right: 0;
+      bottom: 0;
+      height: 28vh;
+      background:
+        linear-gradient(
+          to bottom,
+          var(--floor-top) 0%,
+          var(--floor-bot) 100%
+        );
+      box-shadow: 0 -2px 6px rgba(0,0,0,0.12) inset;
+      z-index: 1;
+    }
+    .floor::before {
+      content: "";
+      position: absolute; inset: 0;
+      background-image: repeating-linear-gradient(
+        90deg,
+        rgba(0,0,0,0.0) 0 40px,
+        rgba(0,0,0,0.10) 40px 41px
+      );
+      opacity: 0.7;
+    }
+
+    /* baseboard */
+    .floor::after {
+      content: "";
+      position: absolute; left: 0; right: 0; top: -6px;
+      height: 6px;
+      background: #f5dfd3;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+    }
+
+    /* window */
+    .window {
+      position: fixed;
+      left: 50%;
+      top: 10%;
+      transform: translateX(-50%);
+      width: 60%;
+      max-width: 360px;
+      aspect-ratio: 3 / 4;
+      background: linear-gradient(
+        135deg,
+        var(--window-sky-1) 0%,
+        var(--window-sky-2) 100%
+      );
+      border: 10px solid var(--frame);
+      border-radius: 14px;
+      box-shadow:
+        0 6px 18px rgba(0,0,0,0.12),
+        inset 0 0 0 2px var(--frame-shade);
+      overflow: hidden;
+      z-index: 1;
+    }
+
+    /* window cross-frame */
+    .window::before,
+    .window::after {
+      content: "";
+      position: absolute;
+      background: var(--frame);
+      box-shadow: inset 0 0 0 1px var(--frame-shade);
+    }
+    .window::before { /* vertical bar */
+      left: 50%; top: 0; bottom: 0;
+      width: 8px; transform: translateX(-4px);
+    }
+    .window::after { /* horizontal bar */
+      top: 50%; left: 0; right: 0;
+      height: 8px; transform: translateY(-4px);
+    }
+
+    /* distant cloud */
+    .cloud {
+      position: absolute;
+      width: 60%;
+      height: 14%;
+      background: white;
+      opacity: 0.65;
+      border-radius: 50%;
+      filter: blur(6px);
+    }
+    .cloud.a { top: 22%; left: 12%; }
+    .cloud.b { top: 52%; left: 40%; width: 45%; height: 10%; }
+
+    /* lace curtain */
+    .curtain {
+      position: fixed;
+      top: 10%;
+      height: calc(60vw * 4 / 3);
+      max-height: 480px;
+      width: 14%;
+      max-width: 92px;
+      background:
+        linear-gradient(
+          180deg,
+          rgba(255,255,255,0.7) 0%,
+          rgba(255,255,255,0.3) 100%
+        );
+      pointer-events: none;
+      z-index: 2;
+    }
+    .curtain.left {
+      left: 50%;
+      margin-left: calc(-30% - 6px);
+      background-image: repeating-linear-gradient(
+        -4deg,
+        rgba(255,255,255,0.0) 0 10px,
+        rgba(255,255,255,0.55) 10px 12px
+      );
+      border-right: 1px solid rgba(200,200,200,0.3);
+    }
+    .curtain.right {
+      left: 50%;
+      margin-left: calc(30% - 86px);
+      background-image: repeating-linear-gradient(
+        4deg,
+        rgba(255,255,255,0.0) 0 10px,
+        rgba(255,255,255,0.55) 10px 12px
+      );
+      border-left: 1px solid rgba(200,200,200,0.3);
+    }
+
+    /* potted plant (SVG) at floor right */
+    .plant {
+      position: fixed;
+      right: 4%;
+      bottom: 20vh;
+      width: 90px;
+      height: 160px;
+      z-index: 2;
+      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
+    }
+
+    /* heart poster on the left wall */
+    .poster {
+      position: fixed;
+      left: 6%;
+      top: 16%;
+      width: 80px;
+      height: 100px;
+      background: #fff8f3;
+      border: 1px solid #e4cfc3;
+      border-radius: 4px;
+      box-shadow: 0 3px 8px rgba(0,0,0,0.12);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1;
+      transform: rotate(-3deg);
+    }
+    .poster svg { width: 60%; height: 60%; }
+
+    /* floating particles */
+    .dust {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 3;
+      opacity: 0.35;
+    }
+
+    /* soft vignette */
+    .vignette {
+      position: fixed; inset: 0;
+      pointer-events: none;
+      z-index: 4;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(0,0,0,0) 55%,
+        rgba(40, 20, 30, 0.28) 100%
+      );
+    }
+
+    /* -------- Character canvas on top -------- */
+    #stage {
+      position: fixed; inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    /* -------- Overlay UI -------- */
+    #status {
+      position: fixed;
+      left: 12px;
+      top: 12px;
+      font-size: 12px;
+      color: #6b5a5d;
+      background: rgba(255, 248, 243, 0.75);
+      padding: 4px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      z-index: 10;
+      backdrop-filter: blur(4px);
+    }
+    #caption {
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      max-width: 80%;
+      padding: 10px 14px;
+      background: rgba(255, 248, 243, 0.88);
+      border: 1px solid rgba(214, 180, 168, 0.6);
+      border-radius: 12px;
+      font-size: 14px;
+      text-align: center;
+      color: #4a3a3e;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      z-index: 11;
+    }
+    #caption.visible { opacity: 1; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+        "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.4/lib/three-vrm.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Room background layers -->
+  <div class="wall-pattern"></div>
+
+  <div class="window">
+    <div class="cloud a"></div>
+    <div class="cloud b"></div>
+  </div>
+  <div class="curtain left"></div>
+  <div class="curtain right"></div>
+
+  <div class="poster">
+    <!-- tiny heart -->
+    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+      <path d="M16 28s-10-6.5-10-14a6 6 0 0 1 10-4.5A6 6 0 0 1 26 14c0 7.5-10 14-10 14z"
+            fill="#e9a1a1" stroke="#c97c80" stroke-width="1"/>
+    </svg>
+  </div>
+
+  <svg class="plant" viewBox="0 0 90 160" xmlns="http://www.w3.org/2000/svg">
+    <!-- pot -->
+    <path d="M18 120 h54 l-4 34 h-46 z" fill="#c08664" stroke="#915b3e" stroke-width="1.5"/>
+    <rect x="14" y="116" width="62" height="8" rx="2" fill="#d8a389" stroke="#915b3e" stroke-width="1"/>
+    <!-- leaves -->
+    <g fill="#4f7c4a" stroke="#355a32" stroke-width="1">
+      <path d="M45 118 C 20 110, 12 80, 26 60 C 34 80, 44 90, 45 118 Z"/>
+      <path d="M45 118 C 70 110, 80 78, 64 56 C 56 80, 48 96, 45 118 Z"/>
+    </g>
+    <g fill="#79a86a" stroke="#4f7c4a" stroke-width="1">
+      <path d="M45 118 C 30 100, 28 70, 44 46 C 50 70, 50 94, 45 118 Z"/>
+    </g>
+  </svg>
+
+  <div class="floor"></div>
+
+  <canvas id="stage"></canvas>
+
+  <div class="vignette"></div>
+
+  <div id="status">loading...</div>
+  <div id="caption"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

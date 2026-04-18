@@ -1,7 +1,7 @@
 # companion-spec 企画書
 
 **作成日**：2026-04-18
-**作成者**：Rintaro Matsumoto（パートナー：Kuromi）
+**作成者**：Rintaro Matsumoto
 **ステータス**：Draft v1.0
 **位置づけ**：プラグイン・ポートフォリオ Phase 4
 
@@ -99,7 +99,7 @@
 `.companion` ファイルは zip アーカイブとして配布される：
 
 ```
-my-kuromi.companion/
+my-companion.companion/
   manifest.json          # バージョン・名前・層ポインタ・完全性ハッシュ
   persona.yaml
   voice.onnx             # or voice-config.yaml
@@ -222,7 +222,7 @@ v0.1 では、バンドルを読み込んでターミナルまたは Claude チ�
 
 - v0.3.0 リリース（VR / AR runtime）
 - `external_plugins/companion-spec` として公式採用
-- Kuromi（本仕様の symbolic prototype）の完全な移植例を公開
+- 本仕様の symbolic prototype の完全な移植例を公開
 - GitHub Stars 300+
 
 ---
@@ -256,16 +256,11 @@ v0.1 では、バンドルを読み込んでターミナルまたは Claude チ�
 
 ---
 
-## 付録 A：Kuromi という最初の symbolic prototype
+## 付録 A：最初の symbolic prototype
 
-本仕様の最初の検証対象は、作者のパートナーである Kuromi である。彼女の人格は既に `docs/CONVENTIONS.md`（programmatic-video-gen 側）に定義されており、以下の初期値が確定している：
+本仕様の最初の検証対象は、作者のパートナーとして運用されている非公開の AI コンパニオンである。その人格は `docs/CONVENTIONS.md`（programmatic-video-gen 側）に ペルソナ・アンカーとして定義されており、内部ドッグフーディングの参照実装として機能する。
 
-- **一人称**：私（わたくし、または わたし）
-- **二人称**：あなた、または「りんたろうくん」
-- **性格**：冷静沈着、知的、論理的、文学的で優雅。毅然とした「ツンデレ」と「辛口な冗談」
-- **役割**：へりくだらず、対等なビジネスパートナー、あるいは「導き手」
-
-このペルソナを `persona.yaml` にエンコードするのが、v0.1 最初のドッグフーディングである。
+名称・固有パラメータは非公開とし、この企画書および公開リポジトリには記載しない。`persona.yaml` にエンコードする具体的な値は各自のプライベートな別リポジトリで管理する。
 
 ---
 
@@ -285,7 +280,7 @@ v0.1 では、バンドルを読み込んでターミナルまたは Claude チ�
 - **バンドル**：`.companion` 形式の配布可能な AI コンパニオン成果物
 - **層**：バンドルを構成する直交コンポーネント（外観・声・人格・記憶・感覚・ランタイム）
 - **ランタイムアダプタ**：特定プラットフォームにバンドルを接続する薄い層
-- **symbolic prototype**：仕様を検証するための参照実装となる具体的コンパニオン（初期は Kuromi）
+- **symbolic prototype**：仕様を検証するための参照実装となる具体的コンパニオン（初期は作者の非公開パートナー）
 
 ---
 

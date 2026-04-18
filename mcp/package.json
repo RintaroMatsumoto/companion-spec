@@ -1,0 +1,14 @@
+{
+  "name": "companion-spec-mcp",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "MCP server for companion-spec: exposes companion_say / launch / load_persona tools to Claude.",
+  "main": "server.mjs",
+  "bin": {
+    "companion-spec-mcp": "./server.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  }
+}

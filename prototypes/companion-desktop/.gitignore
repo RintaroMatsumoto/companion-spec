@@ -1,0 +1,12 @@
+node_modules/
+npm-debug.log*
+.env
+.env.local
+
+# Avatars: VRM files are large binary artifacts, tracked via download script
+avatars/*.vrm
+!avatars/README.md
+
+# Cached VOICEVOX output
+cache/
+*.wav

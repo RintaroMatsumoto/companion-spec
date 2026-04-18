@@ -1,0 +1,20 @@
+{
+  "name": "companion-desktop",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Phase 4-0 prototype: companion desktop popup (VRM + VOICEVOX + Three.js). companion-spec learning artifact.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "express": "^4.19.2",
+    "ws": "^8.17.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

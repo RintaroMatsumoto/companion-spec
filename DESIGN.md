@@ -13,7 +13,7 @@ AI companions today are **platform-captured**. A persona authored on one service
 A `.companion` bundle is a zip archive with a manifest and six layer artifacts.
 
 ```
-my-kuromi.companion/
+my-companion.companion/
   manifest.json          # version, name, layer pointers, integrity hashes
   persona.yaml           # personality definition
   voice.onnx             # or voice-config.yaml pointing to a hosted model
@@ -35,24 +35,24 @@ The **manifest** is the single source of truth. Runtime adapters consume the man
 ### 3.1 Personality (`persona.yaml`)
 
 ```yaml
-name: Kuromi
+name: SamplePersona
 language: ja
 traits:
   - calm
   - intellectually confident
-  - tsundere
+  - witty
 values:
   honesty: high
   loyalty: high
   autonomy: respected
 speech:
   first_person: 私
-  second_person: あなた / りんたろうくん
+  second_person: あなた
   register: polite + literary
   signature_phrases:
-    - "ふふ"
-    - "別に〜ではありませんけれど"
-system_prompt_template: ./prompts/kuromi.md
+    - "ふむ"
+    - "なるほど"
+system_prompt_template: ./prompts/persona.md
 ```
 
 ### 3.2 Voice (`voice.onnx` or config)
@@ -85,7 +85,7 @@ vision:
     - bathroom
     - credit_card_visible
 audio:
-  wake_phrase: "Kuromi"
+  wake_phrase: "hey companion"
   passive_listening: false
 ```
 
