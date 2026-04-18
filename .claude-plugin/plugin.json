@@ -1,7 +1,7 @@
 {
   "name": "companion-spec",
-  "version": "0.1.0",
-  "description": "On-screen AI companion: speaks, emotes, and swaps persona via .companion bundles. VRM avatar + VOICEVOX voice + skill-driven narration, wired into Cowork.",
+  "version": "0.0.1-design",
+  "description": "Portable, hardware-neutral specification for AI companions. Plan, schema, ethics, and a desktop prototype in one repository; skills and runtime adapters land as they are ready.",
   "author": {
     "name": "Rintaro Matsumoto",
     "url": "https://github.com/RintaroMatsumoto"
@@ -17,22 +17,13 @@
     "claude-code",
     "cowork",
     "ai-companion",
-    "avatar",
+    "specification",
+    "portable",
     "vrm",
     "persona",
     "voicevox",
-    "tts"
-  ],
-  "skills": [
-    "./skills/companion-narrator"
-  ],
-  "commands": [
-    "./commands/companion.md"
-  ],
-  "mcpServers": {
-    "companion": {
-      "command": "node",
-      "args": ["./mcp/server.mjs"]
-    }
-  }
+    "tts",
+    "webxr",
+    "quest"
+  ]
 }
