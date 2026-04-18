@@ -87,6 +87,90 @@ camera.lookAt(headPos.x, headPos.y - 0.10, headPos.z);
   `removeUnnecessaryVertices`, `rotateVRM0`。
 - 呼ぶ前に `typeof VRMUtils.xxx === "function"` で守る。
 
+### 1.7 `VRMLookAt` は `head.quaternion` を毎フレーム上書きする
+
+`vrm.update(dt)` の内部で `VRMLookAt.update()` が呼ばれ、
+`lookAt.autoUpdate === true` のときは **head ボーンの quaternion を直接
+書き換える**。したがって idle アニメで `head.rotation.x/y/z` に代入しても、
+その直後の `vrm.update()` で消える。
+
+対策：
+1. **首を揺らしたいなら `Neck` を回す**。公式 examples の `bones.html`
+   （v3.1.4）も neck を操作している。
+2. ターゲットを外す：`vrm.lookAt.target = null;`
+3. 自動更新を止める：`vrm.lookAt.autoUpdate = false;`
+
+1＋2＋3 を併用しておくのが無難。target 未設定でも autoUpdate が true のままだと
+quaternion 初期化が走る rig がある。
+
+出典：
+- [three-vrm examples bones.html](https://github.com/pixiv/three-vrm/blob/dev/packages/three-vrm/examples/bones.html)
+- [VRMLookAt API](https://pixiv.github.io/three-vrm/docs/classes/three-vrm.VRMLookAt.html)
+
+### 1.8 Normalized `Hips.position.y` は rest 値が **モデル依存**
+
+- 正規化ボーンは **回転** が identity quaternion に揃うだけで、
+  **位置** は rest-pose の値（キャラクターの腰の高さ、典型的に 0.8〜1.0m）
+  がそのまま乗っている。ゼロではない。
+- したがって idle 用の breathing で `hips.position.y = sin(t) * 0.02` と
+  **絶対代入**すると rest 高さが消えて足元が床にめり込む。
+- 正しくは加算：`hips.position.y = restHipY + sin(t) * 0.02;`
+  restHipY はロード直後に保存しておくこと。
+  それも面倒なら、呼吸は `Spine` の微小回転で表現するのが安全。
+
+出典：[pixiv/three-vrm Issue #1585](https://github.com/pixiv/three-vrm/issues/1585)
+（normalized humanoid の position 非ゼロに関するスレッド）。
+
+### 1.9 アバターのホットスワップは「インフライト mutex ＋ URL 重複排除」で
+
+**問題**：サーバーが WebSocket 接続時に `{ type: "persona", avatarUrl }` を
+送信し、クライアントが起動時にも初期アバターをロードすると、
+**同じ URL に対して GLTFLoader を二重に走らせる**ことがある。
+`three.js` は `THREE.Cache.enabled` がデフォルト `false` なので、
+同じ URL でも毎回フェッチし直す（[three.js #15321](https://github.com/mrdoob/three.js/issues/15321)）。
+
+**対策パターン**：
+
+```js
+let currentVRM = null;
+let currentAvatarUrl = null;
+let avatarLoadingPromise = null;
+
+async function loadAvatar(urlOrCandidates) {
+  const candidates = Array.isArray(urlOrCandidates) ? urlOrCandidates : [urlOrCandidates];
+  // 1) 既に同じ URL が乗っているなら何もしない
+  if (currentVRM && candidates.includes(currentAvatarUrl)) return;
+  // 2) 進行中のロードがあるなら待つ
+  if (avatarLoadingPromise) {
+    await avatarLoadingPromise;
+    if (currentVRM && candidates.includes(currentAvatarUrl)) return;
+  }
+  avatarLoadingPromise = (async () => {
+    if (currentVRM) {
+      scene.remove(currentVRM.scene);
+      if (typeof VRMUtils.deepDispose === "function") VRMUtils.deepDispose(currentVRM.scene);
+      currentVRM = null;
+      currentAvatarUrl = null;
+    }
+    for (const url of candidates) {
+      try {
+        const gltf = await loadVrmFromUrl(url);
+        onVrmLoaded(gltf);
+        currentAvatarUrl = url;
+        return;
+      } catch (err) { /* 次候補へ */ }
+    }
+  })();
+  try { await avatarLoadingPromise; } finally { avatarLoadingPromise = null; }
+}
+```
+
+出典：
+- [pixiv/three-vrm Discussion #1172](https://github.com/pixiv/three-vrm/discussions/1172)
+  （ホットスワップ時のメモリとレース条件）
+- [three.js Issue #15321](https://github.com/mrdoob/three.js/issues/15321)
+  （`THREE.Cache` はデフォルト無効、明示的に `THREE.Cache.enabled = true` が必要）
+
 ---
 
 ## 2. カメラ／姿勢の実装テンプレート
@@ -123,6 +207,18 @@ Idle アニメは毎フレーム `normalizedHumanBones.xxx.node.rotation` を上
 - 試行錯誤で何かを発見したら、**その場で**この TOOLBOX に追記する。
 - 出典 URL は必須。「たぶんこう」は書かない。検証できないものは
   「演繹（根拠 A／B／C）」と明記する。
+
+### 4.1 TDZ（一時的デッドゾーン）注意
+
+モジュール初期化時に即時実行する関数（例：`resize()`）が `let` / `const`
+宣言された変数を参照するなら、**その宣言を関数より前に書く**。
+`let currentVRM = null;` を `resize()` の定義より下に置いて `resize()` を
+即時呼ぶと、`ReferenceError: Cannot access 'currentVRM' before initialization`
+でモジュール全体が死ぬ（`main.js` は一行も動かず、ステータスは HTML 初期値
+の "loading..." のまま固まる）。
+
+出典：
+- MDN, _Temporal dead zone_ — https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/let#temporal_dead_zone_tdz
 
 ---
 

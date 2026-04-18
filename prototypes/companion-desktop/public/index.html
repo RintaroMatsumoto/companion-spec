@@ -4,21 +4,23 @@
   <meta charset="utf-8" />
   <title>companion-desktop — prototype</title>
   <style>
+    /*
+     * Warm Afternoon Room — ADR-0004 / docs/ROOM_DESIGN.md §A-2
+     * パレット：クリーム／オーカー主体 + サージュ緑のワンポイント
+     * 構図：三層構成、窓はバック・サード、最高輝度はアバター近く、午後の斜光
+     */
     :root {
-      --wall-top:    #fbe7e0;   /* soft peach */
-      --wall-mid:    #f5d6cc;
-      --wall-bottom: #ecc8bd;
-      --floor-top:   #c89a7a;   /* warm oak */
-      --floor-bot:   #9a6c4f;
-      --window-sky-1:#cfe7f4;
-      --window-sky-2:#e8d9ef;
-      --frame:       #f7ede4;
-      --frame-shade: #d8bfae;
-      --lace:        rgba(255, 255, 255, 0.55);
-      --accent:      #e9a1a1;
-      --leaf-dark:   #4f7c4a;
-      --leaf-light:  #79a86a;
-      --pot:         #c08664;
+      --cream:       #FFF2D8;   /* 最明 — ハイライト、カーテン */
+      --ochre-pale:  #F7D9B0;   /* 上壁 */
+      --ochre-warm:  #E8B892;   /* 下壁、床ハイライト */
+      --wood:        #C98A6B;   /* 床 */
+      --anchor-dark: #6B4E3D;   /* アンカー暗色 — 幅木、棚、影 */
+      --sage:        #A8C4A2;   /* サージュ緑 — 一点だけ */
+
+      --window-sky-top:    #f1e4c8;  /* 斜陽の空、低彩度 */
+      --window-sky-bottom: #e8b892;
+      --frame:             #fff2d8;
+      --frame-shade:       #b89070;
     }
 
     html, body {
@@ -27,94 +29,60 @@
       width: 100vw;
       height: 100vh;
       overflow: hidden;
-      color: #55484a;
+      color: #4a3a2e;
       font-family: "Yu Gothic", "Hiragino Sans", system-ui, sans-serif;
     }
 
-    /* -------- Room -------- */
+    /* -------- 背景：壁（下層背景） -------- */
+    /* 上下で色を分ける + 60% 位置にチェアレール */
     body {
       background:
         linear-gradient(
           to bottom,
-          var(--wall-top)   0%,
-          var(--wall-mid)   55%,
-          var(--wall-bottom) 72%
+          var(--ochre-pale) 0%,
+          var(--ochre-pale) 60%,
+          var(--ochre-warm) 60.3%,
+          var(--ochre-warm) 72%
         );
     }
 
-    /* soft striped wallpaper */
-    .wall-pattern {
-      position: fixed; inset: 0;
-      background-image:
-        repeating-linear-gradient(
-          90deg,
-          rgba(255,255,255,0.0) 0 24px,
-          rgba(255,255,255,0.35) 24px 25px
-        );
-      opacity: 0.35;
-      pointer-events: none;
-      z-index: 0;
-    }
-
-    /* wooden floor */
-    .floor {
+    /* チェアレール（壁の水平モール） — 60% 高にアンカー暗色の線 */
+    .chair-rail {
       position: fixed;
       left: 0; right: 0;
-      bottom: 0;
-      height: 28vh;
-      background:
-        linear-gradient(
-          to bottom,
-          var(--floor-top) 0%,
-          var(--floor-bot) 100%
-        );
-      box-shadow: 0 -2px 6px rgba(0,0,0,0.12) inset;
+      top: 60%;
+      height: 3px;
+      background: var(--anchor-dark);
+      opacity: 0.55;
+      box-shadow: 0 2px 0 rgba(107, 78, 61, 0.18);
+      pointer-events: none;
       z-index: 1;
     }
-    .floor::before {
-      content: "";
-      position: absolute; inset: 0;
-      background-image: repeating-linear-gradient(
-        90deg,
-        rgba(0,0,0,0.0) 0 40px,
-        rgba(0,0,0,0.10) 40px 41px
-      );
-      opacity: 0.7;
-    }
 
-    /* baseboard */
-    .floor::after {
-      content: "";
-      position: absolute; left: 0; right: 0; top: -6px;
-      height: 6px;
-      background: #f5dfd3;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.15);
-    }
-
-    /* window */
+    /* -------- 背景：窓（バック・サード左側） -------- */
+    /* 三分割グリッドの左 1/3 に配置。中央対称を避ける。 */
     .window {
       position: fixed;
-      left: 50%;
-      top: 10%;
-      transform: translateX(-50%);
-      width: 60%;
-      max-width: 360px;
+      left: 12%;
+      top: 14%;
+      width: 22%;
+      max-width: 280px;
       aspect-ratio: 3 / 4;
       background: linear-gradient(
-        135deg,
-        var(--window-sky-1) 0%,
-        var(--window-sky-2) 100%
+        180deg,
+        var(--window-sky-top)    0%,
+        var(--window-sky-bottom) 100%
       );
       border: 10px solid var(--frame);
-      border-radius: 14px;
+      border-radius: 6px;
       box-shadow:
-        0 6px 18px rgba(0,0,0,0.12),
+        0 6px 18px rgba(60, 40, 20, 0.18),
         inset 0 0 0 2px var(--frame-shade);
       overflow: hidden;
       z-index: 1;
     }
 
-    /* window cross-frame */
+    /* 窓の十字フレーム */
     .window::before,
     .window::after {
       content: "";
@@ -131,105 +99,185 @@
       height: 8px; transform: translateY(-4px);
     }
 
-    /* distant cloud */
+    /* 遠景雲（窓の中） */
     .cloud {
       position: absolute;
       width: 60%;
-      height: 14%;
-      background: white;
-      opacity: 0.65;
+      height: 12%;
+      background: var(--cream);
+      opacity: 0.75;
       border-radius: 50%;
       filter: blur(6px);
     }
-    .cloud.a { top: 22%; left: 12%; }
-    .cloud.b { top: 52%; left: 40%; width: 45%; height: 10%; }
+    .cloud.a { top: 24%; left: 14%; }
+    .cloud.b { top: 58%; left: 38%; width: 50%; height: 9%; }
 
-    /* lace curtain */
+    /* レースカーテン（窓にだけかける、低彩度クリーム） */
     .curtain {
       position: fixed;
-      top: 10%;
-      height: calc(60vw * 4 / 3);
-      max-height: 480px;
-      width: 14%;
-      max-width: 92px;
+      top: 14%;
+      height: 30vh;
+      max-height: 380px;
+      width: 5%;
+      max-width: 60px;
       background:
         linear-gradient(
           180deg,
-          rgba(255,255,255,0.7) 0%,
-          rgba(255,255,255,0.3) 100%
+          rgba(255, 242, 216, 0.65) 0%,
+          rgba(255, 242, 216, 0.25) 100%
         );
       pointer-events: none;
       z-index: 2;
     }
     .curtain.left {
-      left: 50%;
-      margin-left: calc(-30% - 6px);
+      left: 11%;
       background-image: repeating-linear-gradient(
         -4deg,
-        rgba(255,255,255,0.0) 0 10px,
-        rgba(255,255,255,0.55) 10px 12px
+        rgba(255,255,255,0.0) 0 9px,
+        rgba(255,242,216,0.55) 9px 11px
       );
-      border-right: 1px solid rgba(200,200,200,0.3);
     }
     .curtain.right {
-      left: 50%;
-      margin-left: calc(30% - 86px);
+      left: 30%;
       background-image: repeating-linear-gradient(
         4deg,
-        rgba(255,255,255,0.0) 0 10px,
-        rgba(255,255,255,0.55) 10px 12px
+        rgba(255,255,255,0.0) 0 9px,
+        rgba(255,242,216,0.55) 9px 11px
       );
-      border-left: 1px solid rgba(200,200,200,0.3);
     }
 
-    /* potted plant (SVG) at floor right */
-    .plant {
+    /* -------- 中景：本棚（右側、壁の低い方に） -------- */
+    /* アンカー暗色の木製棚。アバターから離して、彩度もサイズも抑える。 */
+    .bookshelf {
       position: fixed;
       right: 4%;
-      bottom: 20vh;
-      width: 90px;
-      height: 160px;
-      z-index: 2;
-      filter: drop-shadow(0 2px 4px rgba(0,0,0,0.18));
-    }
-
-    /* heart poster on the left wall */
-    .poster {
-      position: fixed;
-      left: 6%;
-      top: 16%;
-      width: 80px;
-      height: 100px;
-      background: #fff8f3;
-      border: 1px solid #e4cfc3;
-      border-radius: 4px;
-      box-shadow: 0 3px 8px rgba(0,0,0,0.12);
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      top: 42%;
+      width: 14%;
+      max-width: 160px;
+      height: 18%;
+      max-height: 130px;
+      background: var(--anchor-dark);
+      border-radius: 2px;
+      box-shadow:
+        0 4px 10px rgba(60, 40, 20, 0.25),
+        inset 0 -3px 0 rgba(0,0,0,0.22);
       z-index: 1;
-      transform: rotate(-3deg);
     }
-    .poster svg { width: 60%; height: 60%; }
+    /* 本の背表紙 — 低彩度の色をランダムっぽく並べる */
+    .bookshelf::before {
+      content: "";
+      position: absolute;
+      left: 4px; right: 4px; top: 4px;
+      height: calc(50% - 6px);
+      background:
+        linear-gradient(to right,
+          #c98a6b 0 14%,
+          #8a7a5a 14% 24%,
+          #a8c4a2 24% 32%,
+          #6b4e3d 32% 40%,
+          #e8b892 40% 52%,
+          #8a9c7a 52% 60%,
+          #c08664 60% 72%,
+          #6b4e3d 72% 80%,
+          #a8c4a2 80% 92%,
+          #c98a6b 92% 100%
+        );
+      border-radius: 1px;
+    }
+    .bookshelf::after {
+      content: "";
+      position: absolute;
+      left: 4px; right: 4px;
+      top: calc(50% + 2px);
+      height: calc(50% - 6px);
+      background:
+        linear-gradient(to right,
+          #a8c4a2 0 10%,
+          #6b4e3d 10% 22%,
+          #e8b892 22% 34%,
+          #8a7a5a 34% 44%,
+          #c98a6b 44% 56%,
+          #a8c4a2 56% 66%,
+          #6b4e3d 66% 78%,
+          #c08664 78% 88%,
+          #8a9c7a 88% 100%
+        );
+      border-radius: 1px;
+    }
 
-    /* floating particles */
-    .dust {
+    /* -------- 前景：床 -------- */
+    .floor {
+      position: fixed;
+      left: 0; right: 0;
+      bottom: 0;
+      height: 28vh;
+      background:
+        linear-gradient(
+          to bottom,
+          var(--ochre-warm) 0%,
+          var(--wood)       30%,
+          var(--wood)       100%
+        );
+      box-shadow: 0 -2px 8px rgba(60, 40, 20, 0.2) inset;
+      z-index: 2;
+    }
+    .floor::before {
+      content: "";
+      position: absolute; inset: 0;
+      background-image: repeating-linear-gradient(
+        90deg,
+        rgba(0,0,0,0.0) 0 48px,
+        rgba(60, 40, 20, 0.14) 48px 49px
+      );
+      opacity: 0.8;
+    }
+    /* 幅木（アンカー暗色） */
+    .floor::after {
+      content: "";
+      position: absolute; left: 0; right: 0; top: -5px;
+      height: 5px;
+      background: var(--anchor-dark);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+    }
+
+    /* -------- 前景：観葉植物（サージュ緑、アクセント一点） -------- */
+    /* 床の手前、右端ではなく少し内側。アバターから離す。 */
+    .plant {
+      position: fixed;
+      right: 6%;
+      bottom: 22vh;
+      width: 90px;
+      height: 150px;
+      z-index: 3;
+      filter: drop-shadow(0 3px 6px rgba(60, 40, 20, 0.25));
+    }
+
+    /* -------- 午後の斜光 -------- */
+    /* 窓（左上）から差し込む暖色の指向性光。一つだけ。 */
+    .afternoon-light {
       position: fixed;
       inset: 0;
       pointer-events: none;
-      z-index: 3;
-      opacity: 0.35;
+      z-index: 4;
+      background:
+        linear-gradient(
+          115deg,
+          rgba(255, 242, 216, 0.32) 0%,
+          rgba(255, 242, 216, 0.10) 28%,
+          rgba(255, 242, 216, 0.00) 50%
+        );
+      mix-blend-mode: screen;
     }
 
-    /* soft vignette */
+    /* ソフトヴィネット（暗色は暖系ブラウン寄り） */
     .vignette {
       position: fixed; inset: 0;
       pointer-events: none;
-      z-index: 4;
+      z-index: 5;
       background: radial-gradient(
-        ellipse at center,
+        ellipse at 55% 55%,
         rgba(0,0,0,0) 55%,
-        rgba(40, 20, 30, 0.28) 100%
+        rgba(60, 40, 20, 0.32) 100%
       );
     }
 
@@ -238,7 +286,7 @@
       position: fixed; inset: 0;
       width: 100vw;
       height: 100vh;
-      z-index: 5;
+      z-index: 6;
       pointer-events: none;
     }
 
@@ -248,8 +296,8 @@
       left: 12px;
       top: 12px;
       font-size: 12px;
-      color: #6b5a5d;
-      background: rgba(255, 248, 243, 0.75);
+      color: #6b4e3d;
+      background: rgba(255, 242, 216, 0.8);
       padding: 4px 8px;
       border-radius: 4px;
       pointer-events: none;
@@ -263,15 +311,15 @@
       transform: translateX(-50%);
       max-width: 80%;
       padding: 10px 14px;
-      background: rgba(255, 248, 243, 0.88);
-      border: 1px solid rgba(214, 180, 168, 0.6);
+      background: rgba(255, 242, 216, 0.9);
+      border: 1px solid rgba(107, 78, 61, 0.35);
       border-radius: 12px;
       font-size: 14px;
       text-align: center;
-      color: #4a3a3e;
+      color: #4a3a2e;
       opacity: 0;
       transition: opacity 0.3s ease;
-      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+      box-shadow: 0 2px 10px rgba(60, 40, 20, 0.18);
       z-index: 11;
     }
     #caption.visible { opacity: 1; }
@@ -287,8 +335,10 @@
   </script>
 </head>
 <body>
-  <!-- Room background layers -->
-  <div class="wall-pattern"></div>
+  <!-- ===== Warm Afternoon Room — 三層構成 ===== -->
+
+  <!-- 背景層：壁＋チェアレール＋窓 -->
+  <div class="chair-rail"></div>
 
   <div class="window">
     <div class="cloud a"></div>
@@ -297,32 +347,31 @@
   <div class="curtain left"></div>
   <div class="curtain right"></div>
 
-  <div class="poster">
-    <!-- tiny heart -->
-    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-      <path d="M16 28s-10-6.5-10-14a6 6 0 0 1 10-4.5A6 6 0 0 1 26 14c0 7.5-10 14-10 14z"
-            fill="#e9a1a1" stroke="#c97c80" stroke-width="1"/>
-    </svg>
-  </div>
+  <!-- 中景：本棚（右手前の壁） -->
+  <div class="bookshelf"></div>
+
+  <!-- 前景：床＋観葉植物 -->
+  <div class="floor"></div>
 
   <svg class="plant" viewBox="0 0 90 160" xmlns="http://www.w3.org/2000/svg">
-    <!-- pot -->
-    <path d="M18 120 h54 l-4 34 h-46 z" fill="#c08664" stroke="#915b3e" stroke-width="1.5"/>
-    <rect x="14" y="116" width="62" height="8" rx="2" fill="#d8a389" stroke="#915b3e" stroke-width="1"/>
-    <!-- leaves -->
-    <g fill="#4f7c4a" stroke="#355a32" stroke-width="1">
+    <!-- 鉢（アンカー暗色＋ウォームブラウン） -->
+    <path d="M18 120 h54 l-4 34 h-46 z" fill="#6B4E3D" stroke="#3e2a1e" stroke-width="1.5"/>
+    <rect x="14" y="116" width="62" height="8" rx="2" fill="#C98A6B" stroke="#3e2a1e" stroke-width="1"/>
+    <!-- 葉っぱ（サージュ緑の三階調） -->
+    <g fill="#6e8a6a" stroke="#3e4e3a" stroke-width="1">
       <path d="M45 118 C 20 110, 12 80, 26 60 C 34 80, 44 90, 45 118 Z"/>
       <path d="M45 118 C 70 110, 80 78, 64 56 C 56 80, 48 96, 45 118 Z"/>
     </g>
-    <g fill="#79a86a" stroke="#4f7c4a" stroke-width="1">
+    <g fill="#A8C4A2" stroke="#6e8a6a" stroke-width="1">
       <path d="M45 118 C 30 100, 28 70, 44 46 C 50 70, 50 94, 45 118 Z"/>
     </g>
   </svg>
 
-  <div class="floor"></div>
-
+  <!-- アバター（キャラクター層） -->
   <canvas id="stage"></canvas>
 
+  <!-- 最上層：午後の斜光＋ヴィネット -->
+  <div class="afternoon-light"></div>
   <div class="vignette"></div>
 
   <div id="status">loading...</div>

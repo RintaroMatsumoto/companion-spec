@@ -47,6 +47,10 @@ light.position.set(1, 2, 1);
 scene.add(light);
 scene.add(new THREE.AmbientLight(0xc8d0ff, 0.45));
 
+// ---------------- VRM load ----------------
+// Must be declared before resize() since resize() reads currentVRM and
+// is called at module-init time. (Temporal dead zone trap.)
+let currentVRM = null;
 
 function resize() {
   const w = window.innerWidth;
@@ -54,56 +58,72 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
-  if (currentVRM) frameCameraOnVRM(currentVRM);
+  if (currentVRM) frameCameraOnHead(currentVRM);
 }
 resize();
 window.addEventListener("resize", resize);
 
-// ---------------- VRM load ----------------
-let currentVRM = null;
-
 const loader = new GLTFLoader();
 loader.register((parser) => new VRMLoaderPlugin(parser));
 
-// Candidate VRM sources — first is our bundled local file, then CDN fallbacks.
-// Any single one that loads a humanoid-with-expressions is enough.
-// `/avatars/current.vrm` is written by /persona/load; we try it first, then fall back.
+// Candidate VRM sources for the initial boot. `/avatars/current.vrm` is
+// written by /persona/load (optional); fall back to the bundled companion.vrm.
 const VRM_CANDIDATES = [
   "/avatars/current.vrm",
   "/avatars/companion.vrm",
 ];
+
+// Single source of truth for "which avatar is on screen" and
+// "is a load currently in progress". See TOOLBOX §1.7 (avatar hot-swap).
+let currentAvatarUrl = null;
+let avatarLoadingPromise = null;
+
+// Forward-declared here to avoid TDZ when onVrmLoaded (called from an
+// async load path) resets the counter. See TOOLBOX §4.1.
+let idleFrameCount = 0;
 
 function onVrmLoaded(gltf) {
   const vrm = gltf.userData.vrm;
   if (!vrm) {
     throw new Error("gltf.userData.vrm is null — file is not a VRM?");
   }
+  // Optional optimizations — guard each since three-vrm 3.x dropped some.
   try {
     if (typeof VRMUtils.removeUnnecessaryVertices === "function") {
       VRMUtils.removeUnnecessaryVertices(gltf.scene);
     }
-    if (typeof VRMUtils.combineSkeletons === "function") {
-      VRMUtils.combineSkeletons(gltf.scene);
-    }
-  } catch (e) {
-    console.warn("VRMUtils optimize skipped:", e);
-  }
-  // VRM 1.0 already faces +Z (toward camera). VRM 0.x faces -Z — rotate only then.
-  const metaVersion = vrm.meta?.metaVersion ?? "1";
-  if (String(metaVersion).startsWith("0")) {
-    vrm.scene.rotation.y = Math.PI;
-    if (typeof VRMUtils.rotateVRM0 === "function") {
-      try { VRMUtils.rotateVRM0(vrm); } catch (e) { console.warn("rotateVRM0 skipped:", e); }
-    }
-  }
+  } catch (e) { console.warn("VRMUtils optimize skipped:", e); }
+
   scene.add(vrm.scene);
   currentVRM = vrm;
+  idleFrameCount = 0; // reset so the bone-diagnostic log fires for the new avatar
+
+  // Orientation: ADR-0003. rotateVRM0 is a no-op for VRM 1.0, safe to call
+  // unconditionally. Never write `vrm.scene.rotation.y = Math.PI` by hand.
+  if (typeof VRMUtils.rotateVRM0 === "function") {
+    try { VRMUtils.rotateVRM0(vrm); } catch (e) { console.warn(e); }
+  }
+
+  // LookAt: disable auto-update. VRMLookAt writes the HEAD bone's quaternion
+  // every frame inside vrm.update() — silently overwriting our idle
+  // animation. Confirmed by the official bones.html example which rotates
+  // `neck` (not `head`) for this exact reason.
+  // Source: https://github.com/pixiv/three-vrm/blob/v3.1.4/packages/three-vrm/examples/bones.html
+  if (vrm.lookAt) {
+    vrm.lookAt.target = null;
+    vrm.lookAt.autoUpdate = false;
+  }
+
+  // Pose: ADR-0001. Operate on normalized humanoid bones only.
   applyAPose(vrm);
+  vrm.update(0); // flush normalized → raw for camera framing
+
   applyEmotion("calm");
+
   try {
-    frameCameraOnVRM(vrm);
+    frameCameraOnHead(vrm);
   } catch (e) {
-    console.warn("frameCameraOnVRM failed — falling back to default camera:", e);
+    console.warn("frameCameraOnHead failed — falling back to default camera:", e);
     camera.position.set(0, 1.3, 2.2);
     camera.lookAt(0, 1.2, 0);
   }
@@ -111,37 +131,33 @@ function onVrmLoaded(gltf) {
   console.log("[vrm] loaded", vrm);
 }
 
-// Auto-frame the camera on the VRM so she sits centered in view regardless
-// of the VRM's internal scale / origin convention.
-function frameCameraOnVRM(vrm) {
-  // Force a world-matrix update so bounding box reflects the current pose.
+// Frame the camera on the Head bone's world position — robust across
+// VRMs of varying scales/origins. See ADR-0002; Box3 is explicitly avoided
+// because spring-bone colliders and hidden first-person meshes inflate it.
+function frameCameraOnHead(vrm) {
   vrm.scene.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(vrm.scene);
-  if (!isFinite(box.min.x) || box.isEmpty()) return;
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const center = new THREE.Vector3();
-  box.getCenter(center);
-  // Target a point around the chest/face (upper third of the avatar).
-  const target = new THREE.Vector3(
-    center.x,
-    box.min.y + size.y * 0.82,
-    center.z,
-  );
-  // Distance so the full torso + head fits; FOV=30° ⇒ tan(15°)≈0.268.
-  const frameHeight = size.y * 0.55; // show upper half
-  const dist = frameHeight / 2 / Math.tan((camera.fov * Math.PI) / 360);
-  camera.position.set(target.x, target.y, target.z + dist * 1.1);
-  camera.lookAt(target);
-  camera.near = Math.max(0.05, dist * 0.05);
-  camera.far = dist * 10;
+  const head = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Head);
+  if (!head) return;
+  const headPos = new THREE.Vector3();
+  head.getWorldPosition(headPos);
+  // Stand slightly below head height, 0.9 m back — shows head + upper torso.
+  camera.position.set(headPos.x, headPos.y - 0.05, headPos.z + 0.9);
+  camera.lookAt(headPos.x, headPos.y - 0.10, headPos.z);
+  camera.near = 0.05;
+  camera.far = 20;
   camera.updateProjectionMatrix();
 }
 
 // ---------------- A-pose + idle animation ----------------
-// Set a resting pose by rotating humanoid bones directly. VRM's default import
-// pose is T-pose, which looks stiff. We rotate upper arms down to the sides,
-// bend forearms slightly, and give the idle loop a gentle breath + sway.
+// Operate on NORMALIZED humanoid bones only. See ADR-0001.
+// Sign convention (three.js right-hand, normalized rest = identity):
+//   LeftUpperArm.rotation.z  positive  → left arm goes UP (banzai)
+//   LeftUpperArm.rotation.z  negative  → left arm goes DOWN (A-pose)
+//   Right side mirrors.
+// Default is a gentle ~20° A-pose (±0.35 rad) — Animaze's 70° was too stiff.
+const A_POSE_UPPER = 0.35;
+const A_POSE_LOWER = 0.10;
+
 function applyAPose(vrm) {
   const h = vrm.humanoid;
   if (!h) return;
@@ -152,98 +168,176 @@ function applyAPose(vrm) {
     if (euler.y !== undefined) node.rotation.y = euler.y;
     if (euler.z !== undefined) node.rotation.z = euler.z;
   };
-  // Arms down at sides (A-pose, ~70° from horizontal).
-  // Sign convention: for this VRM, +z on LeftUpperArm raises the arm (banzai);
-  // we want it DOWN, so negate. Mirror on the right.
-  set(VRMHumanBoneName.LeftUpperArm,  { z: -1.15 });
-  set(VRMHumanBoneName.RightUpperArm, { z:  1.15 });
-  // Forearms slightly forward + inward.
-  set(VRMHumanBoneName.LeftLowerArm,  { y:  0.12, z: -0.05 });
-  set(VRMHumanBoneName.RightLowerArm, { y: -0.12, z:  0.05 });
-  // Relaxed hands.
-  set(VRMHumanBoneName.LeftHand,  { z: -0.05 });
-  set(VRMHumanBoneName.RightHand, { z:  0.05 });
-  // Slight shoulder drop so arms don't hover off the torso.
-  set(VRMHumanBoneName.LeftShoulder,  { z: -0.06 });
-  set(VRMHumanBoneName.RightShoulder, { z:  0.06 });
+  set(VRMHumanBoneName.LeftUpperArm,  { z: -A_POSE_UPPER });
+  set(VRMHumanBoneName.RightUpperArm, { z:  A_POSE_UPPER });
+  set(VRMHumanBoneName.LeftLowerArm,  { z: -A_POSE_LOWER });
+  set(VRMHumanBoneName.RightLowerArm, { z:  A_POSE_LOWER });
 }
+
+// Idle の目標：画面越しでも「動いてる」と認識できる量。
+// 人間の自然呼吸より少し大きめ・速めにする（TV アニメの棒立ちカットと同じ誇張）。
+const BREATH_HZ = 0.33;   // 20/min、自然呼吸よりやや速い
+const TAU = Math.PI * 2;
 
 function updateIdle(vrm, now) {
   if (!vrm?.humanoid) return;
   const t = now / 1000;
   const h = vrm.humanoid;
-  // Breathing: tiny chest/spine pitch.
+
+  // 初回のみ、どのボーンが取れたかをログ（null でないかの目視確認用）
+  if (idleFrameCount === 0) {
+    const diag = {};
+    for (const bone of [
+      VRMHumanBoneName.Spine, VRMHumanBoneName.Chest, VRMHumanBoneName.Head,
+      VRMHumanBoneName.Neck, VRMHumanBoneName.Hips,
+      VRMHumanBoneName.LeftUpperArm, VRMHumanBoneName.RightUpperArm,
+      VRMHumanBoneName.LeftLowerArm, VRMHumanBoneName.RightLowerArm,
+      VRMHumanBoneName.LeftShoulder, VRMHumanBoneName.RightShoulder,
+    ]) {
+      diag[bone] = !!h.getNormalizedBoneNode(bone);
+    }
+    console.log("[idle] normalized bones available:", diag);
+  }
+  idleFrameCount++;
+
+  const breath = Math.sin(t * BREATH_HZ * TAU);
+  const breathNext = Math.sin(t * BREATH_HZ * TAU + 0.4);
+
+  // 呼吸：脊柱 & 胸（やや誇張）
   const spine = h.getNormalizedBoneNode(VRMHumanBoneName.Spine);
-  if (spine) spine.rotation.x = Math.sin(t * 1.6) * 0.02;
+  if (spine) spine.rotation.x = breath * 0.06;            // ±3.4°
   const chest = h.getNormalizedBoneNode(VRMHumanBoneName.Chest);
-  if (chest) chest.rotation.x = Math.sin(t * 1.6 + 0.3) * 0.015;
-  // Head micro-sway (figure-8-ish via sin/cos phase).
+  if (chest) chest.rotation.x = breathNext * 0.05;         // ±2.9°
+
+  // 頭部 look-around：`neck` に書く（`head` ではなく）。
+  // 理由：`VRMLookAt` が `head.quaternion` を `vrm.update()` 内で
+  // 上書きしうる。公式 bones.html も `neck` を回している。
+  // lookAt.autoUpdate は onVrmLoaded で false にしているが、neck を
+  // 使う方がアバター差し替え時も安全。
+  const neck = h.getNormalizedBoneNode(VRMHumanBoneName.Neck);
+  if (neck) {
+    neck.rotation.y = Math.sin(t * 0.55)        * 0.22;   // ±12.6° yaw
+    neck.rotation.x = Math.cos(t * 0.37 + 1.1)  * 0.10;   // ±5.7° pitch
+    neck.rotation.z = Math.sin(t * 0.23 + 0.7)  * 0.08;   // ±4.6° roll
+  }
+
+  // 頭：首との差分として、さらに細かい揺らぎを重ねる（二段動き）
   const head = h.getNormalizedBoneNode(VRMHumanBoneName.Head);
   if (head) {
-    head.rotation.y = Math.sin(t * 0.45) * 0.06;
-    head.rotation.x = Math.cos(t * 0.38) * 0.025;
+    head.rotation.y = Math.sin(t * 0.73 + 0.5) * 0.04;
+    head.rotation.x = Math.sin(t * 0.53 + 0.2) * 0.025;
   }
-  // Upper body weight shift.
+
+  // 重心：左右荷重移動のみ。
+  // NOTE: hips.position.y を絶対値で書くと rest pose の高さ（~0.9m）を上書きして
+  //       アバター全体が床にめり込む。呼吸感は脊柱・胸・肩の回転で既に十分出る。
   const hips = h.getNormalizedBoneNode(VRMHumanBoneName.Hips);
-  if (hips) hips.position.y = Math.sin(t * 1.6) * 0.008;
-  // Arm micro-sway so she doesn't look frozen. Signs must match applyAPose.
-  const armSway = Math.sin(t * 0.7) * 0.03;
+  if (hips) {
+    hips.rotation.z = Math.sin(t * 0.27)       * 0.07;      // ±4° 傾き
+    hips.rotation.y = Math.sin(t * 0.21 + 0.3) * 0.08;      // ±4.6° ひねり
+  }
+
+  // 腕：A-pose を中心に呼吸で開閉
+  const armOpen  = breath * 0.08;                           // ±4.6°
+  const armSwing = Math.sin(t * 0.41) * 0.06;               // ±3.4°
+  const foreArm  = -breath * 0.06;                          // 逆位相
+
   const lUp = h.getNormalizedBoneNode(VRMHumanBoneName.LeftUpperArm);
-  if (lUp) lUp.rotation.z = -1.15 - armSway;
+  if (lUp) lUp.rotation.z = -A_POSE_UPPER - armOpen - armSwing;
   const rUp = h.getNormalizedBoneNode(VRMHumanBoneName.RightUpperArm);
-  if (rUp) rUp.rotation.z =  1.15 + armSway;
+  if (rUp) rUp.rotation.z =  A_POSE_UPPER + armOpen + armSwing;
+
+  const lLow = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerArm);
+  if (lLow) lLow.rotation.z = -A_POSE_LOWER - foreArm;
+  const rLow = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
+  if (rLow) rLow.rotation.z =  A_POSE_LOWER + foreArm;
+
+  // 肩：呼吸で上下
+  const lSh = h.getNormalizedBoneNode(VRMHumanBoneName.LeftShoulder);
+  if (lSh) lSh.rotation.z = -breath * 0.04;
+  const rSh = h.getNormalizedBoneNode(VRMHumanBoneName.RightShoulder);
+  if (rSh) rSh.rotation.z =  breath * 0.04;
 }
 
-async function tryLoadVrm(urls) {
-  for (const url of urls) {
-    setStatus(`loading avatar: ${url}`);
-    try {
-      await new Promise((resolve, reject) => {
-        loader.load(
-          url,
-          (gltf) => {
-            try {
-              onVrmLoaded(gltf);
-              resolve();
-            } catch (e) {
-              reject(e);
-            }
-          },
-          (p) => {
-            if (p && p.total) {
-              setStatus(
-                `loading ${url} — ${Math.round((p.loaded / p.total) * 100)}%`,
-              );
-            }
-          },
-          (err) => reject(err),
-        );
-      });
-      return; // success
-    } catch (err) {
-      console.error(`[vrm] failed ${url}:`, err);
-      setStatus(
-        `avatar load failed: ${err?.message || err} — trying next candidate`,
-      );
+// Load one specific URL. Throws on network / parse failure.
+function loadVrmFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    loader.load(
+      url,
+      (gltf) => resolve(gltf),
+      (p) => {
+        if (p && p.total) {
+          setStatus(
+            `loading ${url} — ${Math.round((p.loaded / p.total) * 100)}%`,
+          );
+        }
+      },
+      (err) => reject(err),
+    );
+  });
+}
+
+// Single unified avatar loader.
+// - Dedups by URL (no-op if already loaded).
+// - Serializes concurrent calls (any in-flight load completes first).
+// - Accepts either a single URL or an array of candidates; the first
+//   successful candidate wins.
+// Called by both the initial boot (COMPANION_CANDIDATES) and the WS
+// `persona` message. See TOOLBOX §1.7.
+async function loadAvatar(urlOrCandidates) {
+  const candidates = Array.isArray(urlOrCandidates)
+    ? urlOrCandidates
+    : [urlOrCandidates];
+
+  // URL-dedup: if one of the candidates matches what's already loaded, no-op.
+  if (currentVRM && candidates.includes(currentAvatarUrl)) {
+    return;
+  }
+
+  // Serialize: if a load is in flight, wait for it, then re-check dedup.
+  if (avatarLoadingPromise) {
+    await avatarLoadingPromise;
+    if (currentVRM && candidates.includes(currentAvatarUrl)) {
+      return;
     }
   }
-  setStatus("avatar load failed — all candidates exhausted (see console)");
-}
 
-tryLoadVrm(VRM_CANDIDATES);
-
-async function swapPersona(avatarUrl) {
-  setStatus(`persona swap: ${avatarUrl}`);
-  // Dispose current VRM.
-  if (currentVRM) {
-    scene.remove(currentVRM.scene);
-    if (typeof VRMUtils.deepDispose === "function") {
-      try { VRMUtils.deepDispose(currentVRM.scene); } catch (e) { console.warn(e); }
+  avatarLoadingPromise = (async () => {
+    // Dispose the old one before we start fetching the new one.
+    if (currentVRM) {
+      scene.remove(currentVRM.scene);
+      if (typeof VRMUtils.deepDispose === "function") {
+        try { VRMUtils.deepDispose(currentVRM.scene); } catch (e) { console.warn(e); }
+      }
+      currentVRM = null;
+      currentAvatarUrl = null;
     }
-    currentVRM = null;
+
+    for (const url of candidates) {
+      setStatus(`loading avatar: ${url}`);
+      try {
+        const gltf = await loadVrmFromUrl(url);
+        onVrmLoaded(gltf);
+        currentAvatarUrl = url;
+        return;
+      } catch (err) {
+        console.error(`[vrm] failed ${url}:`, err);
+        setStatus(`avatar load failed: ${err?.message || err} — trying next`);
+      }
+    }
+    setStatus("avatar load failed — all candidates exhausted (see console)");
+  })();
+
+  try {
+    await avatarLoadingPromise;
+  } finally {
+    avatarLoadingPromise = null;
   }
-  await tryLoadVrm([avatarUrl]);
 }
+
+// Boot: kick off the initial load. The WS `persona` message, when it
+// arrives, will dedup-no-op if the same URL is already loaded.
+loadAvatar(VRM_CANDIDATES);
 
 // ---------------- Emotion → VRM expression ----------------
 // VRM expression preset names (0.x / 1.0 compatible via three-vrm normalization):
@@ -380,7 +474,7 @@ function connectWS() {
       }
     } else if (msg.type === "persona" && msg.avatarUrl) {
       try {
-        await swapPersona(msg.avatarUrl);
+        await loadAvatar(msg.avatarUrl);
       } catch (err) {
         console.error("persona swap failed", err);
       }
