@@ -1,7 +1,15 @@
 # avatars/
 
-VRM avatar files live here. They are excluded from git by `.gitignore`
-because they are large binary artifacts.
+VRM avatar files live here.
+
+リポジトリに同梱されている `companion.vrm` は Polygonal Mind の
+**100Avatars R1 / Lydia**（CC0 1.0 Universal）。出典・採用理由・
+既知の制約（感情 blendshape 未実装 等）は
+[`../docs/ASSETS_LICENSE.md`](../docs/ASSETS_LICENSE.md) を参照。
+
+別のモデルに差し替えたい場合は `companion.vrm` を上書きするだけ。
+大きなファイル（> 10 MB）を入れるときは `.gitignore` を調整するか
+別ホスティングを検討する。
 
 ## How to provide an avatar
 
