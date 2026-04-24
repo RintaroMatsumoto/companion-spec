@@ -8,9 +8,11 @@
 // Endpoints:
 //   GET  /                 → public/index.html
 //   GET  /avatars/:file    → VRM file
+//   GET  /avatars/motions/ → VRMA files (served via same static mount)
 //   GET  /health           → { server, voicevox }
 //   POST /say              → { text, emotion?, speaker? }  → WS broadcast
 //   POST /move             → { action: approach|retreat|step, steps? }  → WS broadcast
+//   POST /dance            → { clip }                       → WS broadcast
 
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -27,6 +29,12 @@ const PORT = Number(process.env.COMPANION_PORT || process.env.PORT || 5173);
 
 const VALID_EMOTIONS = new Set(["calm", "wry", "pleased", "scolding"]);
 const VALID_MOVE_ACTIONS = new Set(["approach", "retreat", "step"]);
+
+// Whitelist of dance clip names. Must stay in sync with DANCE_CLIPS on the
+// browser (public/main.js). Server validates clip names before broadcasting
+// so a malicious/typo payload cannot cause the browser to try loading a
+// VRMA outside /avatars/motions/.
+const VALID_DANCE_CLIPS = new Set(["clap", "jump", "look", "thinking"]);
 
 // In-memory persona state. Updated by /persona/load.
 let currentPersona = {
@@ -113,6 +121,17 @@ app.post("/say", async (req, res) => {
     console.error("[say] synthesis failed:", err.message);
     res.status(502).json({ error: String(err.message || err) });
   }
+});
+
+app.post("/dance", (req, res) => {
+  const { clip } = req.body || {};
+  if (typeof clip !== "string" || !VALID_DANCE_CLIPS.has(clip)) {
+    return res.status(400).json({
+      error: "clip must be one of: " + [...VALID_DANCE_CLIPS].join(", "),
+    });
+  }
+  broadcast({ type: "dance", clip });
+  res.json({ ok: true, clip });
 });
 
 const httpServer = createServer(app);
