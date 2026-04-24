@@ -10,6 +10,7 @@
 //   GET  /avatars/:file    → VRM file
 //   GET  /health           → { server, voicevox }
 //   POST /say              → { text, emotion?, speaker? }  → WS broadcast
+//   POST /move             → { action: approach|retreat|step, steps? }  → WS broadcast
 
 import express from "express";
 import { WebSocketServer } from "ws";
@@ -25,6 +26,7 @@ const ROOT = resolve(__dirname, "..");
 const PORT = Number(process.env.COMPANION_PORT || process.env.PORT || 5173);
 
 const VALID_EMOTIONS = new Set(["calm", "wry", "pleased", "scolding"]);
+const VALID_MOVE_ACTIONS = new Set(["approach", "retreat", "step"]);
 
 // In-memory persona state. Updated by /persona/load.
 let currentPersona = {
@@ -69,6 +71,24 @@ app.post("/persona/load", async (req, res) => {
     console.error("[persona] load failed:", err.message);
     res.status(400).json({ error: String(err.message || err) });
   }
+});
+
+// POST /move — broadcast a locomotion trigger to the browser.
+//   body: { action: "approach" | "retreat" | "step", steps?: number }
+// UX 方針：自動発火はしない。明示トリガのみ（curl / スクリプト）。
+app.post("/move", (req, res) => {
+  const { action, steps } = req.body || {};
+  if (!VALID_MOVE_ACTIONS.has(action)) {
+    return res.status(400).json({
+      error: `action must be one of: ${[...VALID_MOVE_ACTIONS].join(", ")}`,
+    });
+  }
+  const payload = { type: "move", action };
+  if (action === "step" && Number.isFinite(steps)) {
+    payload.steps = Math.max(1, Math.min(8, Math.floor(steps)));
+  }
+  broadcast(payload);
+  res.json({ ok: true, ...payload });
 });
 
 app.post("/say", async (req, res) => {
