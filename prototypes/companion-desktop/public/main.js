@@ -82,6 +82,19 @@ let avatarLoadingPromise = null;
 // async load path) resets the counter. See TOOLBOX §4.1.
 let idleFrameCount = 0;
 
+// Rest (A-pose) hips position. Captured at onVrmLoaded time so updateIdle
+// can additively drive hips.position.x without clobbering the authored y.
+// VRM の作家が設定した高さ（通常 y≈0.9）を崩さない。
+let hipsRestPos = null;
+
+// ---- Camera dolly state (FOV easing) ----
+// 実行中のドリーがなければ null。`tick()` で補間する。
+let dollyState = null; // { startMs, durationMs, fromFov, toFov }
+
+// ---- Stepping (足踏み) state ----
+// 実行中の足踏みがなければ null。
+let stepState = null; // { startMs, totalSteps, durationMs }
+
 function onVrmLoaded(gltf) {
   const vrm = gltf.userData.vrm;
   if (!vrm) {
@@ -116,6 +129,26 @@ function onVrmLoaded(gltf) {
 
   // Pose: ADR-0001. Operate on normalized humanoid bones only.
   applyAPose(vrm);
+
+  // Capture rest hips position BEFORE the first updateIdle() mutates it.
+  // updateIdle() writes hips.position.x each frame; we need the authored value
+  // as the baseline. y / z are never touched (keeps rest height intact).
+  const restHips = vrm.humanoid?.getNormalizedBoneNode(VRMHumanBoneName.Hips);
+  if (restHips) {
+    hipsRestPos = {
+      x: restHips.position.x,
+      y: restHips.position.y,
+      z: restHips.position.z,
+    };
+  } else {
+    hipsRestPos = null;
+  }
+  // Any in-flight dolly/step sessions from a prior avatar are stale now.
+  dollyState = null;
+  stepState = null;
+  camera.fov = CAM_FOV_FAR;
+  camera.updateProjectionMatrix();
+
   vrm.update(0); // flush normalized → raw for camera framing
 
   applyEmotion("calm");
@@ -179,6 +212,33 @@ function applyAPose(vrm) {
 const BREATH_HZ = 0.33;   // 20/min、自然呼吸よりやや速い
 const TAU = Math.PI * 2;
 
+// ---- Locomotion / weight shift constants ----
+// 重心スイング：4 秒周期（= 0.25 Hz）、振幅 ±0.02 m。
+// 480x720 窓内で目立ちすぎない、でも「生きてる」と分かる量として調整。
+// 数値の根拠：肩幅 ~0.3 m の VRM アバターで、0.02 m は肩幅の約 6.7%。
+// 人の自然な待機時の体重移動とほぼ同じレンジ（5〜10%）。
+const WEIGHT_SHIFT_HZ = 0.25;
+const WEIGHT_SHIFT_AMP_M = 0.02;
+
+// カメラドリー（FOV ベース）：小窓で「寄る／退く」を表現する。
+// アバターを前後に動かすより、FOV を絞る方が：
+//   - 足元が画面外に出ない（480x720 で頭〜腰を映す構図を維持）
+//   - 背景が動かないので画面酔いしにくい
+//   - 実装が軽い（カメラ位置の再計算が不要）
+const CAM_FOV_FAR = 30;   // デフォルト（onload 時の camera.fov と一致）
+const CAM_FOV_NEAR = 26;  // approach 時
+const CAM_FOV_EASE_MS = 800;
+
+// 足踏み：1 歩 300ms、既定 2 歩（計 600ms）+ 軽い振り戻し。
+const STEP_DURATION_MS = 300;
+const STEP_DEFAULT_COUNT = 2;
+// UpperLeg.rotation.x は「腿を前後に振る」軸。
+// 正 = 後ろに蹴る（VRM の rest で foot が前、hip が後ろ向き座標なので実測で調整）。
+// 実測：+0.18 rad (~10°) で「膝上げ」として視認できる。控えめに ±0.18 rad。
+const STEP_HIP_AMP = 0.18;
+// 蹴った側の膝を曲げる（= 足を上げる）。+0.35 rad (~20°) 程度。
+const STEP_KNEE_AMP = 0.35;
+
 function updateIdle(vrm, now) {
   if (!vrm?.humanoid) return;
   const t = now / 1000;
@@ -228,14 +288,31 @@ function updateIdle(vrm, now) {
     head.rotation.x = Math.sin(t * 0.53 + 0.2) * 0.025;
   }
 
-  // 重心：左右荷重移動のみ。
+  // 重心：左右荷重移動。回転＋位置を加算する（「その場体重移動」）。
   // NOTE: hips.position.y を絶対値で書くと rest pose の高さ（~0.9m）を上書きして
   //       アバター全体が床にめり込む。呼吸感は脊柱・胸・肩の回転で既に十分出る。
+  // 重心スイングは 4 秒周期（0.25 Hz）、振幅 ±0.02 m。480x720 小窓で過剰に動かない量。
   const hips = h.getNormalizedBoneNode(VRMHumanBoneName.Hips);
+  const weightShift = Math.sin(t * WEIGHT_SHIFT_HZ * TAU); // -1..+1、右荷重=正
   if (hips) {
     hips.rotation.z = Math.sin(t * 0.27)       * 0.07;      // ±4° 傾き
     hips.rotation.y = Math.sin(t * 0.21 + 0.3) * 0.08;      // ±4.6° ひねり
+    // rest hips.position は VRM 側の値が入っている（通常 y≈0.9）。x 成分だけ
+    // 乗せて左右に振る。z は触らない（前後に歩き回らない）。
+    if (hipsRestPos) {
+      hips.position.x = hipsRestPos.x + weightShift * WEIGHT_SHIFT_AMP_M;
+    }
   }
+
+  // 膝：体重が乗った側を微小に曲げる（反対側は伸ばす）。
+  // rotation.x 正 = 膝を曲げる（すねが前に出る）。VRM 標準。
+  // 足踏み中は別レイヤーが乗るので、ここでは弱め（±0.05 rad = ±2.9°）。
+  // NOTE: 足踏み中は stepping レイヤーが直後に完全上書きする（updateStepping）。
+  const lLowLeg = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerLeg);
+  const rLowLeg = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerLeg);
+  // weightShift > 0 → 右荷重 → 右膝を軽く曲げ、左は伸ばす
+  if (lLowLeg) lLowLeg.rotation.x = Math.max(0, -weightShift) * 0.05;
+  if (rLowLeg) rLowLeg.rotation.x = Math.max(0,  weightShift) * 0.05;
 
   // 腕：A-pose を中心に呼吸で開閉
   const armOpen  = breath * 0.08;                           // ±4.6°
@@ -257,6 +334,97 @@ function updateIdle(vrm, now) {
   if (lSh) lSh.rotation.z = -breath * 0.04;
   const rSh = h.getNormalizedBoneNode(VRMHumanBoneName.RightShoulder);
   if (rSh) rSh.rotation.z =  breath * 0.04;
+}
+
+// ---------------- Stepping (足踏み) layer ----------------
+// 既存の idle レイヤーが書いた UpperLeg / LowerLeg の rotation.x を
+// 足踏み中のみ「上書き」する（加算ではない）。終了時は idle が書き戻す。
+// hips.position.z は触らない（その場足踏み、歩き回らない）。
+function updateStepping(vrm, now) {
+  if (!stepState || !vrm?.humanoid) return;
+  const h = vrm.humanoid;
+  const elapsed = now - stepState.startMs;
+  if (elapsed >= stepState.durationMs) {
+    // 終了：idle レイヤーが次フレームから rotation.x を書き戻す。
+    stepState = null;
+    return;
+  }
+
+  // どのステップの中か、その中の進捗（0..1）か。
+  const stepIdx = Math.floor(elapsed / STEP_DURATION_MS); // 0, 1, 2, ...
+  const phase = (elapsed % STEP_DURATION_MS) / STEP_DURATION_MS; // 0..1
+  // sin(πφ) で滑らかな「上げ→下ろす」山型。端で 0 になるので継ぎ目も自然。
+  const lift = Math.sin(phase * Math.PI);
+  // 偶数ステップ=右足、奇数ステップ=左足を上げる。
+  const liftingRight = (stepIdx % 2) === 0;
+
+  const lUp = h.getNormalizedBoneNode(VRMHumanBoneName.LeftUpperLeg);
+  const rUp = h.getNormalizedBoneNode(VRMHumanBoneName.RightUpperLeg);
+  const lLow = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerLeg);
+  const rLow = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerLeg);
+
+  // 上げ足：腿を前に振る（rotation.x 負で前、VRM 右手系）＋膝曲げ。
+  // 支持足：0 に戻す（idle の微小曲げを上書き）。
+  if (liftingRight) {
+    if (rUp)  rUp.rotation.x  = -STEP_HIP_AMP  * lift;
+    if (rLow) rLow.rotation.x =  STEP_KNEE_AMP * lift;
+    if (lUp)  lUp.rotation.x  = 0;
+    if (lLow) lLow.rotation.x = 0;
+  } else {
+    if (lUp)  lUp.rotation.x  = -STEP_HIP_AMP  * lift;
+    if (lLow) lLow.rotation.x =  STEP_KNEE_AMP * lift;
+    if (rUp)  rUp.rotation.x  = 0;
+    if (rLow) rLow.rotation.x = 0;
+  }
+}
+
+// ---------------- Camera dolly (FOV easing) ----------------
+// approach / retreat で FOV を補間する。アバターは動かさず、
+// カメラ側を「寄る・退く」で表現する（UX 方針）。
+function updateDolly(now) {
+  if (!dollyState) return;
+  const { startMs, durationMs, fromFov, toFov } = dollyState;
+  const raw = Math.min(1, (now - startMs) / durationMs);
+  // easeInOutQuad
+  const k = raw < 0.5 ? 2 * raw * raw : 1 - Math.pow(-2 * raw + 2, 2) / 2;
+  camera.fov = fromFov + (toFov - fromFov) * k;
+  camera.updateProjectionMatrix();
+  if (raw >= 1) dollyState = null;
+}
+
+function startDolly(toFov, durationMs = CAM_FOV_EASE_MS) {
+  dollyState = {
+    startMs: performance.now(),
+    durationMs,
+    fromFov: camera.fov,
+    toFov,
+  };
+}
+
+function startStepping(count) {
+  const n = Math.max(1, Math.min(8, Math.floor(count || STEP_DEFAULT_COUNT)));
+  stepState = {
+    startMs: performance.now(),
+    totalSteps: n,
+    durationMs: n * STEP_DURATION_MS,
+  };
+}
+
+// WS `move` ハンドラ。明示トリガのみ（自動発火なし）。
+function handleMove(action, opts = {}) {
+  switch (action) {
+    case "approach":
+      startDolly(CAM_FOV_NEAR);
+      break;
+    case "retreat":
+      startDolly(CAM_FOV_FAR);
+      break;
+    case "step":
+      startStepping(opts.steps);
+      break;
+    default:
+      console.warn("[move] unknown action:", action);
+  }
 }
 
 // Load one specific URL. Throws on network / parse failure.
@@ -441,8 +609,13 @@ function tick() {
     }
     updateBlink(now);
     updateIdle(currentVRM, now);
+    // Stepping layer は idle の後で走る（脚の rotation.x を上書きする）。
+    updateStepping(currentVRM, now);
     currentVRM.update(dt);
   }
+
+  // Camera dolly は VRM の update とは独立。FOV のみ補間する。
+  updateDolly(now);
 
   renderer.render(scene, camera);
   requestAnimationFrame(tick);
@@ -477,6 +650,12 @@ function connectWS() {
         await loadAvatar(msg.avatarUrl);
       } catch (err) {
         console.error("persona swap failed", err);
+      }
+    } else if (msg.type === "move" && typeof msg.action === "string") {
+      try {
+        handleMove(msg.action, { steps: msg.steps });
+      } catch (err) {
+        console.error("move failed", err);
       }
     }
   });
