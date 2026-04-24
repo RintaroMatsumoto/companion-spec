@@ -199,9 +199,13 @@ function frameCameraOnHead(vrm) {
 //   LeftUpperArm.rotation.z  positive  → left arm goes UP (banzai)
 //   LeftUpperArm.rotation.z  negative  → left arm goes DOWN (A-pose)
 //   Right side mirrors.
-// Default is a gentle ~20° A-pose (±0.35 rad) — Animaze's 70° was too stiff.
-const A_POSE_UPPER = 0.35;
-const A_POSE_LOWER = 0.10;
+// Default is a "おしとやか" (demure) posture — arms hanging close to the
+// body. Sign convention: rest pose is T-pose (arms horizontal), and
+// LeftUpperArm.rotation.z = -A_POSE_UPPER rotates the arm DOWN. Larger
+// A_POSE_UPPER = arm closer to vertical (tighter to torso).
+// 1.25 rad ≒ 71.6° rotation → arms ~18° from vertical, gently down.
+const A_POSE_UPPER = 1.25;
+const A_POSE_LOWER = 0.15;
 
 function applyAPose(vrm) {
   const h = vrm.humanoid;
@@ -219,9 +223,9 @@ function applyAPose(vrm) {
   set(VRMHumanBoneName.RightLowerArm, { z:  A_POSE_LOWER });
 }
 
-// Idle の目標：画面越しでも「動いてる」と認識できる量。
-// 人間の自然呼吸より少し大きめ・速めにする（TV アニメの棒立ちカットと同じ誇張）。
-const BREATH_HZ = 0.33;   // 20/min、自然呼吸よりやや速い
+// Idle の目標：おしとやかで「静かに生きてる」くらいの量。
+// 自然呼吸 12〜15/min に近い、控えめな振幅・周期。
+const BREATH_HZ = 0.25;   // 15/min 程度、ゆったり
 const TAU = Math.PI * 2;
 
 // ---- Locomotion / weight shift constants ----
@@ -229,8 +233,8 @@ const TAU = Math.PI * 2;
 // 480x720 窓内で目立ちすぎない、でも「生きてる」と分かる量として調整。
 // 数値の根拠：肩幅 ~0.3 m の VRM アバターで、0.02 m は肩幅の約 6.7%。
 // 人の自然な待機時の体重移動とほぼ同じレンジ（5〜10%）。
-const WEIGHT_SHIFT_HZ = 0.25;
-const WEIGHT_SHIFT_AMP_M = 0.02;
+const WEIGHT_SHIFT_HZ = 0.18;
+const WEIGHT_SHIFT_AMP_M = 0.007;
 
 // カメラドリー（FOV ベース）：小窓で「寄る／退く」を表現する。
 // アバターを前後に動かすより、FOV を絞る方が：
@@ -301,29 +305,31 @@ function updateIdle(vrm, now) {
   const breath = Math.sin(t * BREATH_HZ * TAU);
   const breathNext = Math.sin(t * BREATH_HZ * TAU + 0.4);
 
-  // 呼吸：脊柱 & 胸（やや誇張）
+  // 呼吸：脊柱 & 胸。おしとやかに控えめ。
   const spine = h.getNormalizedBoneNode(VRMHumanBoneName.Spine);
-  if (spine) spine.rotation.x = breath * 0.06;            // ±3.4°
+  if (spine) spine.rotation.x = breath * 0.022;           // ±1.3°
   const chest = h.getNormalizedBoneNode(VRMHumanBoneName.Chest);
-  if (chest) chest.rotation.x = breathNext * 0.05;         // ±2.9°
+  if (chest) chest.rotation.x = breathNext * 0.018;        // ±1.0°
 
   // 頭部 look-around：`neck` に書く（`head` ではなく）。
   // 理由：`VRMLookAt` が `head.quaternion` を `vrm.update()` 内で
   // 上書きしうる。公式 bones.html も `neck` を回している。
   // lookAt.autoUpdate は onVrmLoaded で false にしているが、neck を
   // 使う方がアバター差し替え時も安全。
+  // 振幅はおしとやか基調で控えめに。
   const neck = h.getNormalizedBoneNode(VRMHumanBoneName.Neck);
   if (neck) {
-    neck.rotation.y = Math.sin(t * 0.55)        * 0.22;   // ±12.6° yaw
-    neck.rotation.x = Math.cos(t * 0.37 + 1.1)  * 0.10;   // ±5.7° pitch
-    neck.rotation.z = Math.sin(t * 0.23 + 0.7)  * 0.08;   // ±4.6° roll
+    neck.rotation.y = Math.sin(t * 0.40)        * 0.08;   // ±4.6° yaw
+    neck.rotation.x = Math.cos(t * 0.27 + 1.1)  * 0.04    // ±2.3° pitch
+                    + 0.035;                              // わずかに chin を引く bias
+    neck.rotation.z = Math.sin(t * 0.19 + 0.7)  * 0.025;  // ±1.4° roll
   }
 
-  // 頭：首との差分として、さらに細かい揺らぎを重ねる（二段動き）
+  // 頭：首との差分として、さらに細かい揺らぎを重ねる（二段動き、最小限）
   const head = h.getNormalizedBoneNode(VRMHumanBoneName.Head);
   if (head) {
-    head.rotation.y = Math.sin(t * 0.73 + 0.5) * 0.04;
-    head.rotation.x = Math.sin(t * 0.53 + 0.2) * 0.025;
+    head.rotation.y = Math.sin(t * 0.55 + 0.5) * 0.015;
+    head.rotation.x = Math.sin(t * 0.41 + 0.2) * 0.010;
   }
 
   // 重心：左右荷重移動。回転＋位置を加算する（「その場体重移動」）。
@@ -333,8 +339,8 @@ function updateIdle(vrm, now) {
   const hips = h.getNormalizedBoneNode(VRMHumanBoneName.Hips);
   const weightShift = Math.sin(t * WEIGHT_SHIFT_HZ * TAU); // -1..+1、右荷重=正
   if (hips) {
-    hips.rotation.z = Math.sin(t * 0.27)       * 0.07;      // ±4° 傾き
-    hips.rotation.y = Math.sin(t * 0.21 + 0.3) * 0.08;      // ±4.6° ひねり
+    hips.rotation.z = Math.sin(t * 0.21)       * 0.025;     // ±1.4° 傾き
+    hips.rotation.y = Math.sin(t * 0.17 + 0.3) * 0.030;     // ±1.7° ひねり
     // rest hips.position は VRM 側の値が入っている（通常 y≈0.9）。x 成分だけ
     // 乗せて左右に振る。z は触らない（前後に歩き回らない）。
     if (hipsRestPos) {
@@ -349,13 +355,13 @@ function updateIdle(vrm, now) {
   const lLowLeg = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerLeg);
   const rLowLeg = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerLeg);
   // weightShift > 0 → 右荷重 → 右膝を軽く曲げ、左は伸ばす
-  if (lLowLeg) lLowLeg.rotation.x = Math.max(0, -weightShift) * 0.05;
-  if (rLowLeg) rLowLeg.rotation.x = Math.max(0,  weightShift) * 0.05;
+  if (lLowLeg) lLowLeg.rotation.x = Math.max(0, -weightShift) * 0.018;
+  if (rLowLeg) rLowLeg.rotation.x = Math.max(0,  weightShift) * 0.018;
 
-  // 腕：A-pose を中心に呼吸で開閉
-  const armOpen  = breath * 0.08;                           // ±4.6°
-  const armSwing = Math.sin(t * 0.41) * 0.06;               // ±3.4°
-  const foreArm  = -breath * 0.06;                          // 逆位相
+  // 腕：おしとやかな A-pose を中心に呼吸で静かに開閉。
+  const armOpen  = breath * 0.028;                          // ±1.6°
+  const armSwing = Math.sin(t * 0.32) * 0.020;              // ±1.1°
+  const foreArm  = -breath * 0.022;                         // 逆位相
 
   // 発話ジェスチャ：gestureWeight に比例して両腕 z 方向を揺らす。
   // 左右で cos/sin の位相差をつけて左右対称にしない。既存の breath/swing に
@@ -376,11 +382,11 @@ function updateIdle(vrm, now) {
   const rLow = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
   if (rLow) rLow.rotation.z =  A_POSE_LOWER + foreArm + gestureLowerR;
 
-  // 肩：呼吸で上下
+  // 肩：呼吸で静かに上下
   const lSh = h.getNormalizedBoneNode(VRMHumanBoneName.LeftShoulder);
-  if (lSh) lSh.rotation.z = -breath * 0.04;
+  if (lSh) lSh.rotation.z = -breath * 0.015;
   const rSh = h.getNormalizedBoneNode(VRMHumanBoneName.RightShoulder);
-  if (rSh) rSh.rotation.z =  breath * 0.04;
+  if (rSh) rSh.rotation.z =  breath * 0.015;
 }
 
 // ---------------- Stepping (足踏み) layer ----------------
