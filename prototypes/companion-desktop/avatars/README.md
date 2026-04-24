@@ -1,7 +1,16 @@
 # avatars/
 
-VRM avatar files live here. They are excluded from git by `.gitignore`
-because they are large binary artifacts.
+VRM avatar files live here.
+
+リポジトリに同梱されている `companion.vrm` は pixiv Inc. の
+**VRoid Studio β Ver AvatarSample_1 / Sendagaya Shibu**（CC0 1.0 Universal）。
+VRoid 由来で感情 blendshape（happy/angry/sad/relaxed/neutral）と
+humanoid bones 完備。出典・採用理由・blendshape 検証結果は
+[`../docs/ASSETS_LICENSE.md`](../docs/ASSETS_LICENSE.md) を参照。
+
+別のモデルに差し替えたい場合は `companion.vrm` を上書きするだけ。
+大きなファイル（> 10 MB）を入れるときは `.gitignore` を調整するか
+別ホスティングを検討する。
 
 ## How to provide an avatar
 

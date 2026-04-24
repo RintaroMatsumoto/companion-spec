@@ -3,8 +3,12 @@ npm-debug.log*
 .env
 .env.local
 
-# Avatars: VRM files are large binary artifacts, tracked via download script
-avatars/*.vrm
+# Avatars
+#  - companion.vrm は軽量 CC0 モデルなのでコミットする
+#    (docs/ASSETS_LICENSE.md に出典とライセンスを記録)
+#  - candidates/ は選定時の比較ダウンロード置き場で PR には含めない
+avatars/candidates/
+!avatars/companion.vrm
 !avatars/README.md
 
 # Cached VOICEVOX output
