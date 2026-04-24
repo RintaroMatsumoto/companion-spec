@@ -10,6 +10,7 @@
     "dev": "node --watch server/index.js"
   },
   "dependencies": {
+    "@pixiv/three-vrm-animation": "^3.1.4",
     "adm-zip": "^0.5.17",
     "express": "^4.19.2",
     "ws": "^8.17.0"

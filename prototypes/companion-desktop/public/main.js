@@ -13,6 +13,10 @@ import {
   VRMUtils,
   VRMHumanBoneName,
 } from "@pixiv/three-vrm";
+import {
+  VRMAnimationLoaderPlugin,
+  createVRMAnimationClip,
+} from "@pixiv/three-vrm-animation";
 
 const statusEl = document.getElementById("status");
 const captionEl = document.getElementById("caption");
@@ -64,7 +68,12 @@ resize();
 window.addEventListener("resize", resize);
 
 const loader = new GLTFLoader();
+// Register BOTH VRM and VRMA loader plugins on the same GLTFLoader.
+// Per three-vrm-animation examples, the plugin reads the VRMC_vrm_animation
+// glTF extension and attaches `gltf.userData.vrmAnimations` to the result.
+// Source: https://pixiv.github.io/three-vrm/packages/three-vrm-animation/examples/
 loader.register((parser) => new VRMLoaderPlugin(parser));
+loader.register((parser) => new VRMAnimationLoaderPlugin(parser));
 
 // Candidate VRM sources for the initial boot. `/avatars/current.vrm` is
 // written by /persona/load (optional); fall back to the bundled companion.vrm.
@@ -110,6 +119,9 @@ function onVrmLoaded(gltf) {
   scene.add(vrm.scene);
   currentVRM = vrm;
   idleFrameCount = 0; // reset so the bone-diagnostic log fires for the new avatar
+  // Rebuild the AnimationMixer against the new VRM's skeleton. Clips built
+  // against the old VRM must not cross over.
+  rebindDanceMixer(vrm);
 
   // Orientation: ADR-0003. rotateVRM0 is a no-op for VRM 1.0, safe to call
   // unconditionally. Never write `vrm.scene.rotation.y = Math.PI` by hand.
@@ -241,6 +253,13 @@ const STEP_KNEE_AMP = 0.35;
 
 function updateIdle(vrm, now) {
   if (!vrm?.humanoid) return;
+  // Short-circuit when VRMA dance dominates: the mixer will overwrite the
+  // humanoid bones absolutely, and any partial crossfade is handled by
+  // three's AnimationAction.weight lerping from the "current binding value"
+  // (which is whatever updateIdle last wrote — see the render loop order)
+  // toward the clip value. So we only need to stop writing idle when
+  // dance is ~fully asserted.
+  if (danceWeight >= 0.98) return;
   const t = now / 1000;
   const h = vrm.humanoid;
 
@@ -427,6 +446,170 @@ function handleMove(action, opts = {}) {
   }
 }
 
+// ---------------- VRMA dance layer ----------------
+// Design:
+//   - A single VRMA clip drives an AnimationMixer rebound whenever the VRM
+//     avatar changes (VRM swap → rebuild clip + mixer).
+//   - Layer mixing: a scalar `danceWeight` in [0,1] crossfades between the
+//     procedural idle pose (weight = 1 - danceWeight) and the VRMA clip
+//     output. The "idle off" is achieved by attenuating the delta we write
+//     to normalized bones in updateIdle(); the VRMA mixer is allowed to
+//     write the humanoid bones directly when danceWeight > 0.
+//   - VRM expression (emotion) channels are NOT touched by the VRMA clip
+//     unless the clip itself animates expressions; in practice the tk256
+//     VRMA set only animates the humanoid bones so emotion stays locked.
+//
+// References:
+//   - https://www.npmjs.com/package/@pixiv/three-vrm-animation
+//   - https://pixiv.github.io/three-vrm/packages/three-vrm-animation/examples/
+
+// Clip registry: short key → VRMA URL (server file). Keep in sync with the
+// server-side whitelist in server/index.js.
+const DANCE_CLIPS = {
+  clap:     "/avatars/motions/Clapping.vrma",
+  jump:     "/avatars/motions/Jump.vrma",
+  look:     "/avatars/motions/LookAround.vrma",
+  thinking: "/avatars/motions/Thinking.vrma",
+};
+
+// Pre-loaded VRMAnimation objects, keyed by clip name. Populated at boot.
+const vrmAnimationCache = Object.create(null);
+let vrmaPreloadPromise = null;
+
+async function preloadVRMAs() {
+  if (vrmaPreloadPromise) return vrmaPreloadPromise;
+  vrmaPreloadPromise = (async () => {
+    const entries = Object.entries(DANCE_CLIPS);
+    await Promise.all(entries.map(async ([name, url]) => {
+      try {
+        const gltf = await new Promise((res, rej) => {
+          loader.load(url, res, undefined, rej);
+        });
+        const anims = gltf.userData.vrmAnimations;
+        if (!anims || !anims.length) {
+          console.warn(`[vrma] ${url} has no vrmAnimations — skipping`);
+          return;
+        }
+        vrmAnimationCache[name] = anims[0];
+        console.log(`[vrma] preloaded "${name}" from ${url}`);
+      } catch (err) {
+        console.warn(`[vrma] failed to preload "${name}" (${url}):`, err);
+      }
+    }));
+  })();
+  return vrmaPreloadPromise;
+}
+
+// Per-VRM mixer + active action bookkeeping. Rebuilt in rebindDanceMixer().
+let mixer = null;
+let activeDanceAction = null;
+let activeDanceName = null;
+
+// Layer weight: 0 = pure idle, 1 = pure VRMA.
+// Updated by fades in startDance() / stopDance() each frame.
+let danceWeight = 0;
+let danceWeightTarget = 0;
+const DANCE_FADE_SECONDS = 0.35;
+
+function rebindDanceMixer(vrm) {
+  // Stop & dispose prior mixer (actions retain references to the old VRM).
+  if (mixer) {
+    mixer.stopAllAction();
+    mixer.uncacheRoot(mixer.getRoot?.() ?? undefined);
+    mixer = null;
+  }
+  activeDanceAction = null;
+  activeDanceName = null;
+  danceWeight = 0;
+  danceWeightTarget = 0;
+  if (!vrm) return;
+  mixer = new THREE.AnimationMixer(vrm.scene);
+}
+
+function startDance(clipName) {
+  if (!currentVRM || !mixer) {
+    console.warn("[dance] no VRM/mixer yet, ignoring", clipName);
+    return false;
+  }
+  const vrma = vrmAnimationCache[clipName];
+  if (!vrma) {
+    console.warn(`[dance] unknown clip "${clipName}"`);
+    return false;
+  }
+
+  // Build a fresh THREE.AnimationClip bound to THIS vrm's skeleton.
+  // createVRMAnimationClip must be called per (vrma, vrm) pair.
+  let clip;
+  try {
+    clip = createVRMAnimationClip(vrma, currentVRM);
+  } catch (err) {
+    console.error(`[dance] createVRMAnimationClip failed for ${clipName}:`, err);
+    return false;
+  }
+
+  // Stop previous dance immediately (no in-dance crossfade for v0).
+  if (activeDanceAction) {
+    activeDanceAction.stop();
+    activeDanceAction = null;
+  }
+
+  const action = mixer.clipAction(clip);
+  action.setLoop(THREE.LoopOnce, 1);
+  action.clampWhenFinished = false;
+  action.reset().play();
+
+  activeDanceAction = action;
+  activeDanceName = clipName;
+  danceWeightTarget = 1;
+
+  // Auto-release back to idle when the clip finishes. The mixer fires
+  // "finished" for LoopOnce actions.
+  const onFinished = (ev) => {
+    if (ev.action !== action) return;
+    mixer.removeEventListener("finished", onFinished);
+    stopDance();
+  };
+  mixer.addEventListener("finished", onFinished);
+
+  setStatus(`dance: ${clipName}`);
+  return true;
+}
+
+function stopDance() {
+  danceWeightTarget = 0;
+  // Action is stopped once the fade reaches 0 — see updateDance().
+}
+
+function updateDance(dt) {
+  if (!mixer) return;
+
+  // Ease danceWeight toward target.
+  if (danceWeight !== danceWeightTarget) {
+    const step = dt / DANCE_FADE_SECONDS;
+    if (danceWeight < danceWeightTarget) {
+      danceWeight = Math.min(danceWeightTarget, danceWeight + step);
+    } else {
+      danceWeight = Math.max(danceWeightTarget, danceWeight - step);
+    }
+  }
+
+  // Apply weight to the action (AnimationMixer honors action.weight when
+  // blending). Fully stop when weight reaches zero so we don't keep a dead
+  // action on the mixer.
+  if (activeDanceAction) {
+    activeDanceAction.weight = danceWeight;
+    if (danceWeight <= 0.001 && danceWeightTarget <= 0) {
+      activeDanceAction.stop();
+      activeDanceAction = null;
+      activeDanceName = null;
+      setStatus("ready");
+    }
+  }
+
+  // Advance the mixer (no-op if no actions).
+  mixer.update(dt);
+}
+
 // Load one specific URL. Throws on network / parse failure.
 function loadVrmFromUrl(url) {
   return new Promise((resolve, reject) => {
@@ -506,6 +689,9 @@ async function loadAvatar(urlOrCandidates) {
 // Boot: kick off the initial load. The WS `persona` message, when it
 // arrives, will dedup-no-op if the same URL is already loaded.
 loadAvatar(VRM_CANDIDATES);
+// Preload VRMA dance clips in parallel — first /dance message arrives after
+// this settles in practice (avatar load is the long pole at ~1–3 MB).
+preloadVRMAs();
 
 // ---------------- Emotion → VRM expression ----------------
 // VRM expression preset names (0.x / 1.0 compatible via three-vrm normalization):
@@ -611,6 +797,11 @@ function tick() {
     updateIdle(currentVRM, now);
     // Stepping layer は idle の後で走る（脚の rotation.x を上書きする）。
     updateStepping(currentVRM, now);
+    // Dance mixer runs AFTER updateIdle so three's AnimationAction.weight
+    // lerps from the idle-written pose toward the VRMA clip values. During
+    // crossfade this produces a smooth blend; at weight=1 the mixer fully
+    // overrides. See the VRMA dance layer section above.
+    updateDance(dt);
     currentVRM.update(dt);
   }
 
@@ -656,6 +847,15 @@ function connectWS() {
         handleMove(msg.action, { steps: msg.steps });
       } catch (err) {
         console.error("move failed", err);
+      }
+    } else if (msg.type === "dance" && typeof msg.clip === "string") {
+      // Ensure VRMAs have finished loading before trying to play. If the
+      // first dance arrives during preload, wait for it.
+      try {
+        await preloadVRMAs();
+        startDance(msg.clip);
+      } catch (err) {
+        console.error("dance start failed", err);
       }
     }
   });
