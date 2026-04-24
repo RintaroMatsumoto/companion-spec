@@ -381,6 +381,25 @@ function updateIdle(vrm, now) {
   if (lSh) lSh.rotation.z = -breath * 0.04;
   const rSh = h.getNormalizedBoneNode(VRMHumanBoneName.RightShoulder);
   if (rSh) rSh.rotation.z =  breath * 0.04;
+
+  // ---- Emotion pose offset (additive on top of breath/idle) ----
+  const pose = POSE_MAP[currentEmotionTag] || POSE_MAP.calm;
+  if (spine) spine.rotation.x += pose.spineX;
+  if (chest) chest.rotation.x += pose.chestX;
+  if (neck) {
+    neck.rotation.x += pose.neckX;
+    neck.rotation.z += pose.neckZ;
+  }
+  if (head) head.rotation.x += pose.headX;
+  if (lSh) lSh.rotation.z += pose.lShZ;
+  if (rSh) rSh.rotation.z += pose.rShZ;
+  if (lUp) lUp.rotation.z += pose.lUpZ;
+  if (rUp) rUp.rotation.z += pose.rUpZ;
+
+  // ---- Speaking micro-nod: subtle head rhythm while audio plays ----
+  if (speaking && head) {
+    head.rotation.x += Math.sin(t * 1.5 * TAU) * 0.025; // ~1.5Hz, ±1.4°
+  }
 }
 
 // ---------------- Stepping (足踏み) layer ----------------
@@ -731,7 +750,23 @@ const EMOTION_MAP = {
   scolding: { happy: 0.0,  angry: 0.55, relaxed: 0.0, neutral: 0.2 },
 };
 
+// Emotion → body pose offset (additive on top of A-pose + breathing).
+// All values are rotation offsets in radians.
+// Sign conventions:
+//   spine/chest/neck/head .rotation.x negative = lean back / chin up
+//   neck.rotation.z positive = tilt toward one shoulder
+//   leftUpperArm.rotation.z more negative = arm raised further
+//   rightUpperArm.rotation.z more positive = arm raised further
+const POSE_MAP = {
+  calm:     { spineX:  0.00, chestX:  0.00, neckX:  0.02, neckZ:  0.00, headX:  0.01, lShZ:  0.00, rShZ:  0.00, lUpZ:  0.00, rUpZ:  0.00 },
+  wry:      { spineX:  0.00, chestX:  0.00, neckX:  0.00, neckZ:  0.12, headX:  0.00, lShZ: -0.05, rShZ:  0.00, lUpZ: -0.04, rUpZ:  0.02 },
+  pleased:  { spineX: -0.03, chestX: -0.02, neckX: -0.03, neckZ:  0.00, headX: -0.02, lShZ: -0.03, rShZ:  0.03, lUpZ:  0.00, rUpZ:  0.00 },
+  scolding: { spineX: -0.05, chestX: -0.03, neckX: -0.05, neckZ:  0.00, headX: -0.03, lShZ: -0.02, rShZ:  0.02, lUpZ: -0.08, rUpZ:  0.08 },
+};
+let currentEmotionTag = "calm";
+
 function applyEmotion(tag) {
+  currentEmotionTag = POSE_MAP[tag] ? tag : "calm";
   if (!currentVRM?.expressionManager) return;
   const mix = EMOTION_MAP[tag] || EMOTION_MAP.calm;
   const mgr = currentVRM.expressionManager;
