@@ -10,86 +10,98 @@ Phase 4-0 の学習用アーティファクトとしての性格は変わらな�
 
 | 項目 | 値 |
 |------|----|
-| モデル名 | **Lydia**（Avatar 054） |
-| シリーズ | 100Avatars R1（001–100） |
-| 作者 | Polygonal Mind |
-| 配布元レジストリ | [ToxSam/open-source-avatars](https://github.com/ToxSam/open-source-avatars) |
-| 配布元 (Arweave) | `https://arweave.net/x48D7v037irPQYG7e0vZLDV1E3x5-KookbP9-vaXvYE` |
-| サムネ | `https://arweave.net/DgPsMxXBXBxREc7Wq_w-L0Z2MFiM9E7T5s0yV0c4PJg` |
-| ライセンス | **CC0 1.0 Universal**（VRM 内 meta.licenseName = `CC0`、`projects.json` の license = `CC0`） |
+| モデル名 | **Sendagaya Shibu**（β Ver AvatarSample_1） |
+| 作者 | pixiv Inc.（VRoid Studio 公式サンプル） |
+| 配布元レジストリ | [madjin/vrm-samples](https://github.com/madjin/vrm-samples) — `vroid/beta/Sendagaya_Shibu.vrm` |
+| 上流オリジナル | [VRoid Studio β Ver AvatarSample_1 公式 FAQ](https://vroid.pixiv.help/hc/en-us/articles/360012381793-%CE%B2-Ver-AvatarSample-1) |
+| VRoid Hub | https://hub.vroid.com/characters/675572020956181239/models/4479743608263344465 |
+| ライセンス | **CC0 1.0 Universal**（VRM 内 `meta.licenseName = "CC0"`、VRoid 公式 FAQ で CC0 と明記） |
+| 利用条件（VRM meta） | allowedUserName = Everyone / commercialUssageName = Allow / violentUssageName = Allow / sexualUssageName = Allow |
 | VRM バージョン | 0.x（`extensions.VRM`） |
-| ファイルサイズ | 1,507,976 bytes（約 1.5 MB） |
+| ファイルサイズ | 17,049,284 bytes（約 16.3 MB） |
+| キャラ設定 | 高校1年生、ボブヘアに P 字のヘアピン。VRoid Studio メインビジュアルのサンプルモデル。 |
 
 ### 採用理由
 
-- **CC0 が明示**：VRM の埋め込み meta と、レジストリの両方で `CC0` と一貫して記載されている。二次利用・改変・商用・再配布すべて可。
-- **軽量**：1.5 MB と候補 3 体の中で最小、commit しても repo が膨れない。
-- **humanoid bones 完備**：Spine / Chest / UpperChest / Neck / Head / Hips / 四肢・指骨すべて揃う。
-- **名前の温度感**：Rose / Jennifer と比べて「Lydia」は最も落ち着いた響きで、
-  プロトタイプの落ち着いた知的なペルソナに寄せやすい。
+- **CC0 が二重に明示**：VRM 内埋め込み meta と、配布元 pixiv Inc. の公式 FAQ の両方で CC0 1.0 と一貫して記載されている。商用・改変・再配布・派生作品すべて可、帰属表示不要。
+- **感情 blendshape 完全搭載**：VRoid Studio 公式エクスポートなので、`happy / angry / sad / relaxed / neutral / blink / aa / ih / ou / ee / oh` と `blink_l / blink_r` がすべて揃う。companion-desktop の emotion マッピング（calm / wry / pleased / scolding）が正しく表情に反映される。
+- **humanoid bones 完備**：54 本（指骨・爪先・目まで含む）が過不足なく揃う。ジェスチャ実装に必要な upperChest / shoulders / fingers すべて搭載。
+- **VRoid 由来**：Polygonal Mind 系ではなく VRoid Studio のネイティブエクスポート。VRM 規格の表情・ボーンを素直に持つ。
+- **10代少女・知的で落ち着いた印象**：高校1年生設定、派手すぎない制服、ボブヘア。プロトタイプのペルソナ「可愛く知的で落ち着いた」に合致。
+- **上流が堅牢**：pixiv Inc. が公式に CC0 で配布している VRoid Studio のメインビジュアルモデル。ライセンス矛盾のリスクが極小。
 
-### 既知の制約（重要）
+### blendshape 検証結果
 
-**感情 blendshape が VRM に含まれていない。** Polygonal Mind の 100Avatars R1
-シリーズ共通の仕様として、表情プリセットは以下しか定義されていない:
+`scripts/inspect-vrm.mjs avatars/companion.vrm` の出力サマリ:
 
 ```
-aa, ih, ou, ee, oh, blink
+humanoidBones: 54 present, 0 missing
+expressions: [aa, angry, blink, blink_l, blink_r, ee, happy, ih, neutral, oh, ou, relaxed, sad, unknown]
+  missing: [surprised]
 ```
 
-`main.js` が期待する感情プリセット `happy / angry / sad / relaxed / surprised / neutral`
-は **すべて欠損**。three-vrm の `expressionManager.setValue("happy", 0.5)`
-は未定義プリセットに対してはサイレントに no-op になるため、ビルドや
-ランタイムは壊れないが、**感情タグ（calm / wry / pleased / scolding）による
-表情変化は事実上機能しない**。口パク（aa）と瞬き（blink）は動く。
+- `main.js` の感情マッピングが使う `happy / angry / relaxed / neutral`：**すべて PASS**。
+- 口パク `aa`・瞬き `blink`：**PASS**。
+- 母音 `ih / ou / ee / oh`：PASS（将来の子音口形拡張にも対応可）。
+- 追加の `sad` プリセットも利用可。
+- `surprised` のみ未搭載だが、現在の main.js は呼び出さないため運用上問題なし（必要になったら `happy` + 眉上げなどで代替可）。
 
-対処方針（いずれか）:
-1. 暫定（今 PR の立場）: 感情は胴体・腕のジェスチャ側で表現し、
-   表情差分は後続タスクに切り出す。
-2. 本格対応: Blender で blendshape を追加し VRM を再エクスポート。
-3. 別の CC0 モデルで感情 blendshape 完備のものを再調達。
+### 既知の制約
+
+- ファイルサイズが 16.3 MB あり、当初の「5 MB 以下が理想」からは外れる。ただし blendshape 完全搭載の CC0 VRoid 系モデルは総じてこのサイズ帯。Lydia（1.5 MB）は極端に小さかったが表情欠損があったため、サイズよりも **表情の可動** を優先した。
+- VRM 0.x 形式。three-vrm は 0.x / 1.0 どちらも読むので実行互換性の問題はない。
 
 ---
 
-## 不採用候補
+## 候補比較（今回検証した 3 体）
 
-### Rose（Avatar 057, 100Avatars R1）
+いずれも VRoid Studio 公式サンプル、`meta.licenseName = "CC0"`、humanoid 54 bones 完備、表情 `happy/angry/sad/relaxed/neutral/blink` + 母音 5 種 が揃う。違いはキャラデザインとサイズ。
 
-- 作者: Polygonal Mind / ライセンス: CC0（VRM meta 明示）
-- 配布元: `https://arweave.net/Ea1KXujzJatQgCFSMzGOzp_UtHqB1pyia--U3AtkMAY`
-- サイズ: 2,400,964 bytes（約 2.4 MB）
-- humanoid bones 完備、ただし**感情 blendshape は Lydia と同じく欠損**。
-- 不採用理由: 名前の温度感が「可愛い寄り」で、知的で落ち着いた路線からはやや逸れる。
-  スタイル・ライセンスは Lydia と同等。候補として記録しておく。
+| # | モデル名（FAQ 名） | サイズ | キャラ | 採否 |
+|---|------|-------|-------|------|
+| 1 | **Sendagaya Shibu**（β Ver AvatarSample_1） | 17.0 MB | 高校1年生・ボブ・P ヘアピン・知的で素直 | **採用** |
+| 2 | Victoria Rubin（β Ver AvatarSample_4） | 15.5 MB | ブロンド・垂れ目・上品・well educated | 不採用（洋風で 10代感が弱め、上品過ぎ） |
+| 3 | Vivi（β Ver AvatarSample_2） | 18.1 MB | ブラウンのボブ・丸目・末っ子の甘えん坊 | 不採用（可愛いが知的・落ち着いた印象から外れる） |
 
-### Jennifer（Avatar 052, 100Avatars R1）
+最大の差は「知的で落ち着いた」＋「10代少女」＋「派手すぎない衣装」の同時成立。
+Victoria は大人っぽい洋風、Vivi は幼めでやや子どもっぽいため、Shibu が最適。
 
-- 作者: Polygonal Mind / ライセンス: CC0（VRM meta 明示）
-- 配布元: `https://arweave.net/LKp1uJLAZFmncdCNSZ8oopU7ZElXTvn4BmM4CUcFclc`
-- サイズ: 2,124,360 bytes（約 2.1 MB）
-- humanoid bones 完備、**感情 blendshape は Lydia と同じく欠損**。
-- 不採用理由: 名前は中立だがスタイルは 3 体で大差なく、Lydia より
-  ファイルサイズが大きい。
+---
 
-### Xmas Chibi — Elel Silverbell（検証のみ）
+## 不採用候補（前 PR の記録）
 
-- 作者: VIPE / レジストリ記載ライセンス: CC0
-- **ただし VRM 本体の meta.licenseName = `Redistribution_Prohibited`** という
-  重大な矛盾を検出。再配布を禁止している可能性が高いため即却下。
-- 感情 blendshape（happy / angry / sad / relaxed / neutral）は揃っていたが、
-  ライセンスが信頼できない以上 commit 不可。
-- 教訓: レジストリのライセンス表記を鵜呑みにせず、必ず VRM meta と
-  突き合わせる。`scripts/inspect-vrm.mjs` でチェックできるようにした。
+### Lydia（100Avatars R1, Avatar 054）— **不採用（表情 blendshape 欠損のため）**
+
+| 項目 | 値 |
+|------|----|
+| 作者 | Polygonal Mind |
+| 配布元 | [ToxSam/open-source-avatars](https://github.com/ToxSam/open-source-avatars) |
+| ライセンス | CC0（VRM meta、registry 共に一致） |
+| VRM サイズ | 1,507,976 bytes |
+
+前 PR で一度採用したが、100Avatars R1 シリーズは VRoid Studio 非経由のパイプラインで、
+VRM 標準感情プリセット `happy / angry / sad / relaxed / neutral / surprised` が**全欠損**。
+口パク（`aa`）と瞬き（`blink`）のみ存在。感情タグ（calm / wry / pleased / scolding）が
+顔に反映されないため、本 PR で VRoid 由来の Sendagaya Shibu に差し替えた。
+
+### Rose / Jennifer（100Avatars R1 Avatar 057 / 052）
+
+- 作者・ライセンス: Lydia と同じ Polygonal Mind / CC0。
+- 同シリーズゆえ感情 blendshape も同様に欠損。本タスクの要件を満たさないため候補から除外。
+
+### Xmas Chibi — Elel Silverbell（VIPE, 検証のみ）
+
+- レジストリ記載ライセンス CC0 だが VRM 内 meta.licenseName = `Redistribution_Prohibited` という重大矛盾。
+- 前 PR で即却下済み。再配布を禁止する可能性が高く、本 PR でも採用しない。
 
 ---
 
 ## 旧 placeholder の扱い
 
-`avatars/companion.vrm` にはこれまで three-vrm の
+`avatars/companion.vrm` にはこれまで（Phase 4-0 初期）three-vrm の
 `VRM1_Constraint_Twist_Sample.vrm`（pixiv Inc., 2022）が置かれていた。
-これは three-vrm リポジトリのサンプルで、`scripts/download-avatar.mjs`
-が取得していた。本タスクで Lydia に置換。サンプルはコードベースから
-参照を消していない（ダウンロードスクリプトは残す判断。自作 VRM を
+`scripts/download-avatar.mjs` が取得する placeholder。本タスクで
+Sendagaya Shibu に置換。ダウンロードスクリプトは残置（自作 VRM を
 入れる場合のフォールバックとして）。
 
 ---
@@ -99,7 +111,10 @@ aa, ih, ou, ee, oh, blink
 - `scripts/inspect-vrm.mjs` — VRM の GLB JSON チャンクをダンプし、
   ライセンスメタ・humanoid bones・expression プリセットの過不足を
   レポートする。新しい候補を検討する際はまずこれに通す。
+  
+  ```bat
+  node scripts\inspect-vrm.mjs avatars\candidates\*.vrm
+  ```
 
-```bat
-node scripts/inspect-vrm.mjs avatars/candidates/*.vrm
-```
+- `avatars/candidates/` は `.gitignore` で除外済み。候補比較用の
+  ダウンロード置き場なので PR には含めない。
