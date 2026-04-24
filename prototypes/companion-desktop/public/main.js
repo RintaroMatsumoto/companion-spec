@@ -251,6 +251,25 @@ const STEP_HIP_AMP = 0.18;
 // 蹴った側の膝を曲げる（= 足を上げる）。+0.35 rad (~20°) 程度。
 const STEP_KNEE_AMP = 0.35;
 
+// ---------------- Speech-driven arm gesture ----------------
+// 発話中の振幅 RMS を一次遅れローパスで平滑化し、両腕（Upper/Lower）を
+// 既存の breath + swing に加算して揺らす。talkinghead / VU-VRM の
+// "amplitude → gesture" パターンを最小実装した版。
+//
+// - `latestRms` : tick() の lip sync ブロックで毎フレーム更新される生の RMS。
+//   speaking=false のときは「0 をローパスに流す」ことで自然に収束させる。
+// - `gestureWeight` : 0..1 の平滑化済みウェイト。updateIdle 内で参照。
+// - GESTURE_SMOOTHING : prev * α + target * (1-α)。α=0.85 なので、
+//   ~60fps で数百 ms かけて追従（速すぎるとカクつく、遅すぎると抜ける）。
+// - 位相差: 左腕は cos、右腕は sin → 90° ズレで不自然な左右対称を回避。
+const GESTURE_HZ = 2.0;           // 揺れ周波数（2Hz ≒ 発話の音節リズム程度）
+const GESTURE_SMOOTHING = 0.85;   // ローパス係数（大きいほど鈍い）
+const GESTURE_UPPER_AMP = 0.10;   // upperArm z 振幅 (rad) ≒ ±5.7°
+const GESTURE_LOWER_AMP = 0.06;   // lowerArm z 振幅 (rad) ≒ ±3.4°
+const GESTURE_RMS_GAIN = 2.5;     // RMS→weight のプリゲイン（lip sync と同系統）
+let latestRms = 0;
+let gestureWeight = 0;
+
 function updateIdle(vrm, now) {
   if (!vrm?.humanoid) return;
   // Short-circuit when VRMA dance dominates: the mixer will overwrite the
@@ -338,15 +357,24 @@ function updateIdle(vrm, now) {
   const armSwing = Math.sin(t * 0.41) * 0.06;               // ±3.4°
   const foreArm  = -breath * 0.06;                          // 逆位相
 
+  // 発話ジェスチャ：gestureWeight に比例して両腕 z 方向を揺らす。
+  // 左右で cos/sin の位相差をつけて左右対称にしない。既存の breath/swing に
+  // 「加算」のみ。無発話時は gestureWeight が 0 に収束するので no-op になる。
+  const gPhase = t * GESTURE_HZ * TAU;
+  const gestureUpperL = Math.cos(gPhase)          * GESTURE_UPPER_AMP * gestureWeight;
+  const gestureUpperR = Math.sin(gPhase + 0.3)    * GESTURE_UPPER_AMP * gestureWeight;
+  const gestureLowerL = Math.cos(gPhase * 1.3)    * GESTURE_LOWER_AMP * gestureWeight;
+  const gestureLowerR = Math.sin(gPhase * 1.3 + 0.5) * GESTURE_LOWER_AMP * gestureWeight;
+
   const lUp = h.getNormalizedBoneNode(VRMHumanBoneName.LeftUpperArm);
-  if (lUp) lUp.rotation.z = -A_POSE_UPPER - armOpen - armSwing;
+  if (lUp) lUp.rotation.z = -A_POSE_UPPER - armOpen - armSwing + gestureUpperL;
   const rUp = h.getNormalizedBoneNode(VRMHumanBoneName.RightUpperArm);
-  if (rUp) rUp.rotation.z =  A_POSE_UPPER + armOpen + armSwing;
+  if (rUp) rUp.rotation.z =  A_POSE_UPPER + armOpen + armSwing + gestureUpperR;
 
   const lLow = h.getNormalizedBoneNode(VRMHumanBoneName.LeftLowerArm);
-  if (lLow) lLow.rotation.z = -A_POSE_LOWER - foreArm;
+  if (lLow) lLow.rotation.z = -A_POSE_LOWER - foreArm + gestureLowerL;
   const rLow = h.getNormalizedBoneNode(VRMHumanBoneName.RightLowerArm);
-  if (rLow) rLow.rotation.z =  A_POSE_LOWER + foreArm;
+  if (rLow) rLow.rotation.z =  A_POSE_LOWER + foreArm + gestureLowerR;
 
   // 肩：呼吸で上下
   const lSh = h.getNormalizedBoneNode(VRMHumanBoneName.LeftShoulder);
@@ -783,16 +811,28 @@ function tick() {
   const now = performance.now();
 
   if (currentVRM) {
-    // lip sync
+    // lip sync + gesture drive : どちらも同じ RMS を入力にするので 1 回で計算。
     if (speaking) {
       analyser.getByteFrequencyData(ampData);
       let sum = 0;
       // focus on lower-vocal band
       for (let i = 2; i < 32; i++) sum += ampData[i];
       const rms = sum / (30 * 255);
+      latestRms = rms;
       const mouth = Math.min(1, Math.max(0, (rms - 0.05) * 2.2));
       currentVRM.expressionManager?.setValue("aa", mouth);
+    } else {
+      // speaking が落ちたら入力を 0 にして、ローパスで自然収束させる。
+      latestRms = 0;
     }
+
+    // 一次遅れローパス：prev * α + target * (1-α)
+    // target は 0..1 にクリップした RMS（ゲイン適用後）。
+    const gestureTarget = Math.min(1, Math.max(0, latestRms * GESTURE_RMS_GAIN));
+    gestureWeight =
+      gestureWeight * GESTURE_SMOOTHING +
+      gestureTarget * (1 - GESTURE_SMOOTHING);
+
     updateBlink(now);
     updateIdle(currentVRM, now);
     // Stepping layer は idle の後で走る（脚の rotation.x を上書きする）。
